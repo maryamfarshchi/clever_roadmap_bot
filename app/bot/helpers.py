@@ -1,9 +1,63 @@
-import re
-from datetime import datetime
+# app/bot/helpers.py
 
-# -------------------------------------
-#  Safe getter
-# -------------------------------------
+import os
+import re
+import requests
+from datetime import datetime
+from core.config import BOT_TOKEN
+
+TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}/"
+
+
+# ======================================================
+#   ارسال پیام ساده
+# ======================================================
+def send_message(chat_id, text, keyboard=None):
+    url = TELEGRAM_API + "sendMessage"
+
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "Markdown"
+    }
+
+    if keyboard:
+        payload["reply_markup"] = keyboard
+
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        print("SEND_MESSAGE ERROR:", e)
+
+
+# ======================================================
+#   ارسال پیام با دکمه‌های Inline
+# ======================================================
+def send_buttons(chat_id, text, buttons):
+    url = TELEGRAM_API + "sendMessage"
+
+    markup = {
+        "inline_keyboard": buttons
+    }
+
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "Markdown",
+        "reply_markup": markup
+    }
+
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        print("SEND_BUTTONS ERROR:", e)
+
+
+
+# ======================================================
+#   ★★ کدهای قبلی شما نیز حفظ شده ★★
+# ======================================================
+
 def getval(row, index, default=""):
     """Prevent index errors when reading sheet rows"""
     try:
@@ -12,9 +66,6 @@ def getval(row, index, default=""):
         return default
 
 
-# -------------------------------------
-#  Clean text
-# -------------------------------------
 def clean_text(t):
     """Remove extra spaces, tabs, None, etc."""
     if t is None:
@@ -22,9 +73,6 @@ def clean_text(t):
     return re.sub(r"\s+", " ", str(t)).strip()
 
 
-# -------------------------------------
-#  Task list formatting
-# -------------------------------------
 def format_task_list(tasks, title="لیست تسک‌ها"):
     """
     Convert list of tasks into nice readable output.
@@ -49,9 +97,6 @@ def format_task_list(tasks, title="لیست تسک‌ها"):
     return msg
 
 
-# -------------------------------------
-#  Jalali date diff (for reminders)
-# -------------------------------------
 def jalali_diff(shamsi_date, today_jalali):
     """
     Calculate difference between 2 Persian dates.
