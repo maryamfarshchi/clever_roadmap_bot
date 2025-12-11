@@ -2,18 +2,17 @@
 
 from bot.keyboards import main_keyboard
 from bot.helpers import send_message
-from core.members import find_member, add_member_if_not_exists
+from core.members import find_member, add_member_if_not_exists, mark_welcomed
 from core.tasks import get_tasks_for
 from core.messages import get_random_message
 from core.state import get_user_state, set_user_state, clear_user_state
+
 
 # ============================================================
 #  پردازش اصلی آپدیت‌های دریافتی از تلگرام
 # ============================================================
 def process_update(update):
-
     try:
-        # آپدیت نامعتبر؟
         if "message" not in update:
             return
 
@@ -26,12 +25,12 @@ def process_update(update):
             return
 
         # ============================
-        # پیدا کردن یا ساخت کاربر
+        # پیدا کردن کاربر در members
         # ============================
         user = find_member(chat_id)
 
+        # ========== اگر کاربر نبود، ثبت و خروج ==========
         if not user:
-            # ساخت کاربر جدید در members
             add_member_if_not_exists(
                 chat_id=chat_id,
                 name=chat.get("first_name", ""),
@@ -40,16 +39,22 @@ def process_update(update):
 
             send_message(
                 chat_id,
-                "👋 سلام! الان به سیستم اضافه شدی.\n"
-                "از منوی زیر یکی از گزینه‌ها را انتخاب کن:",
-                main_keyboard()
+                "👋 سلام! شما در سیستم ثبت نشده‌اید.\n"
+                "لطفاً با مدیر سیستم تماس بگیرید تا در *members sheet* اضافه شوید."
             )
             return
 
         # ============================
-        # خواندن state کاربر
+        # خوش‌آمدگویی فقط یک بار
         # ============================
-        state = get_user_state(chat_id)
+        if user.get("welcomed", "") != "Yes":
+            mark_welcomed(chat_id)
+            return send_message(
+                chat_id,
+                f"سلام {user['customname'] or user['name']} عزیز! 👋\n"
+                "از منوی زیر یکی از گزینه‌ها را انتخاب کن:",
+                main_keyboard()
+            )
 
         # ============================
         # فرمان /start
@@ -76,13 +81,12 @@ def process_update(update):
             return send_pending(chat_id, user)
 
         # ============================
-        # هیچ گزینه مطابق نبود → پیام پیش‌فرض
+        # گزینه نامعتبر
         # ============================
         send_message(chat_id, "❗ لطفاً از دکمه‌های منو استفاده کن.")
         return
 
     except Exception as e:
-        # خطای رندر، شیت، تایم، هر چی → لاگ نشود فقط امنیت
         send_message(341781615, f"⚠ خطای بات:\n{str(e)}")
         return
 
@@ -99,7 +103,6 @@ def send_today(chat_id, user):
         return send_message(chat_id, "🌤️ امروز هیچ کاری ثبت نشده.")
 
     text = f"📅 *کارهای امروز ({team})*\n\n"
-
     for t in tasks:
         line = f"🔹 *{t['title']}* ({t['type']})\n"
         if t.get('time'):
@@ -123,7 +126,6 @@ def send_week(chat_id, user):
         return send_message(chat_id, "📆 برای این هفته کاری ثبت نیست.")
 
     text = f"📆 *لیست کارهای هفته ({team})*\n\n"
-
     for t in tasks:
         line = f"🔸 *{t['title']}* ({t['type']})\n"
         line += f"📅 تاریخ: {t['date']}\n"
@@ -146,7 +148,6 @@ def send_pending(chat_id, user):
         return send_message(chat_id, "🎉 همه کارها انجام شده! عالیه 👌")
 
     text = f"⚠ *کارهای انجام‌نشده ({team})*\n\n"
-
     for t in tasks:
         message = get_random_message(
             "DUE",
