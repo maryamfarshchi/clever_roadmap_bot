@@ -30,18 +30,27 @@ def excel_serial_to_date(serial):
 #  تبدیل تاریخ میلادی (سریالی یا متنی)
 # -------------------------------------------------------------------
 def parse_date(en):
+    """
+    تاریخ میلادی را از شیت بخواند (چه فرمول، چه متن).
+    اگر مقدار عددی باشد (تاریخ فرمولی), تبدیل اکسل انجام می‌شود.
+    """
     if not en:
         return None
 
-    # سریال عددی اکسل
+    # اگر تاریخ به صورت عدد سطح پایین اکسل آمده:
     if isinstance(en, (int, float)):
-        return excel_serial_to_date(en)
+        try:
+            base = datetime(1899, 12, 30)
+            return base + timedelta(days=float(en))
+        except:
+            return None
 
-    # فرمت متنی 12/5/2025
+    # اگر رشته باشد (MM/DD/YYYY)
     try:
         return datetime.strptime(str(en), DATE_FMT)
     except:
         return None
+
 
 
 # -------------------------------------------------------------------
@@ -190,3 +199,4 @@ def update_task_status(title, team, new_status="done"):
 
     update_cell("Time Sheet", row_index, status_col, new_status)
     return True
+
