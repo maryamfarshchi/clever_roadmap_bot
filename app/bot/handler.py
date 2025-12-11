@@ -5,7 +5,7 @@ from bot.helpers import send_message
 from core.members import find_member, add_member_if_not_exists, mark_welcomed
 from core.tasks import get_tasks_for
 from core.messages import get_random_message
-from core.state import get_user_state, set_user_state, clear_user_state
+from core.state import clear_user_state
 
 
 # ============================================================
@@ -13,6 +13,10 @@ from core.state import get_user_state, set_user_state, clear_user_state
 # ============================================================
 def process_update(update):
     try:
+
+        # -------------------------------
+        # فقط Message را قبول کن
+        # -------------------------------
         if "message" not in update:
             return
 
@@ -24,31 +28,39 @@ def process_update(update):
         if not chat_id:
             return
 
-        # ============================
-        # پیدا کردن کاربر در members
-        # ============================
+        # Debug مهم برای اطمینان از chat_id
+        print("CHAT_ID =", chat_id)
+
+        # ----------------------------------------------------
+        #  1) پیدا کردن کاربر در members
+        # ----------------------------------------------------
         user = find_member(chat_id)
 
-        # ========== اگر کاربر نبود، ثبت و خروج ==========
+        # ----------------------------------------------------
+        #  2) اگر یافت نشد → یک بار ثبت → پیام ثابت
+        # ----------------------------------------------------
         if not user:
+
             add_member_if_not_exists(
                 chat_id=chat_id,
-                name=chat.get("first_name", ""),
-                username=chat.get("username", "")
+                name=chat.get("first_name", "") or "",
+                username=chat.get("username", "") or ""
             )
 
-            send_message(
+            # این پیام دیگر تکراری نمی‌شود
+            return send_message(
                 chat_id,
                 "👋 سلام! شما در سیستم ثبت نشده‌اید.\n"
                 "لطفاً با مدیر سیستم تماس بگیرید تا در *members sheet* اضافه شوید."
             )
-            return
 
-        # ============================
-        # خوش‌آمدگویی فقط یک بار
-        # ============================
+        # ----------------------------------------------------
+        #  3) خوش آمد فقط وقتی welcomed != Yes
+        # ----------------------------------------------------
         if user.get("welcomed", "") != "Yes":
+
             mark_welcomed(chat_id)
+
             return send_message(
                 chat_id,
                 f"سلام {user['customname'] or user['name']} عزیز! 👋\n"
@@ -56,9 +68,9 @@ def process_update(update):
                 main_keyboard()
             )
 
-        # ============================
-        # فرمان /start
-        # ============================
+        # ----------------------------------------------------
+        #  4) فرمان /start
+        # ----------------------------------------------------
         if text == "/start":
             clear_user_state(chat_id)
             return send_message(
@@ -68,9 +80,9 @@ def process_update(update):
                 main_keyboard()
             )
 
-        # ============================
-        # منوی اصلی
-        # ============================
+        # ----------------------------------------------------
+        #  5) منوی اصلی
+        # ----------------------------------------------------
         if text == "لیست کارهای امروز":
             return send_today(chat_id, user)
 
@@ -80,14 +92,15 @@ def process_update(update):
         if text == "تسک های انجام نشده":
             return send_pending(chat_id, user)
 
-        # ============================
-        # گزینه نامعتبر
-        # ============================
-        send_message(chat_id, "❗ لطفاً از دکمه‌های منو استفاده کن.")
-        return
+        # ----------------------------------------------------
+        #  6) اگر هیچ گزینه‌ای نبود → پیام خطا
+        # ----------------------------------------------------
+        return send_message(chat_id, "❗ لطفاً از دکمه‌های منو استفاده کن.")
 
     except Exception as e:
+        # ارسال خطا برای مدیر
         send_message(341781615, f"⚠ خطای بات:\n{str(e)}")
+        print("PROCESS_UPDATE ERROR:", e)
         return
 
 
