@@ -28,9 +28,9 @@ def get_sheet(sheet):
 # -------------------------
 #  اضافه کردن یک ردیف
 # -------------------------
-def append(sheet, row):
+def append_row(sheet, row):
     try:
         payload = {"sheet": sheet, "row": row}
         requests.post(API, json=payload, timeout=10)
     except Exception as e:
-        print("append ERROR:", e)
+        print("append_row ERROR:", e)
