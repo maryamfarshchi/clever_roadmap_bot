@@ -5,9 +5,9 @@ import requests
 API = os.getenv("GOOGLE_API_URL", "").rstrip("/")
 
 
-# -------------------------
+# ----------------------------------------------------
 #  دریافت داده از یک شیت
-# -------------------------
+# ----------------------------------------------------
 def get_sheet(sheet):
     try:
         url = f"{API}?sheet={sheet}"
@@ -25,12 +25,34 @@ def get_sheet(sheet):
         return []
 
 
-# -------------------------
-#  اضافه کردن یک ردیف
-# -------------------------
+# ----------------------------------------------------
+#  اضافه کردن یک ردیف جدید در شیت
+# ----------------------------------------------------
 def append_row(sheet, row):
     try:
         payload = {"sheet": sheet, "row": row}
         requests.post(API, json=payload, timeout=10)
     except Exception as e:
         print("append_row ERROR:", e)
+
+
+
+# ----------------------------------------------------
+#  آپدیت یک سلول مشخص (rowIndex, colIndex)
+#     → توجه: index از 0 نیست
+#     → index از 1 شروع می‌شود (مثل گوگل‌شیت)
+# ----------------------------------------------------
+def update_cell(sheet, row_index, col_index, value):
+    try:
+        payload = {
+            "sheet": sheet,
+            "update": {
+                "row": row_index,
+                "col": col_index,
+                "value": value
+            }
+        }
+        requests.post(API, json=payload, timeout=10)
+
+    except Exception as e:
+        print("update_cell ERROR:", e)
