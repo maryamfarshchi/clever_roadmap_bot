@@ -1,13 +1,14 @@
+# app/core/members.py
+
 from core.sheets import get_sheet, append_row
 
 
 # ----------------------------------------------------
-# پیدا کردن کاربر در شیت members
+#  خواندن کاربر از شیت members
 # ----------------------------------------------------
 def find_member(chat_id):
     rows = get_sheet("members")
 
-    # اگر شیت خالی بود
     if not rows or len(rows) < 2:
         return None
 
@@ -35,17 +36,50 @@ def find_member(chat_id):
 
 
 # ----------------------------------------------------
-# ثبت کاربر جدید در شیت members
+#  ثبت کاربر جدید (نسخه پایه)
 # ----------------------------------------------------
 def add_member(chat_id, name, username):
-    # ردیفی که باید در شیت اضافه شود
     row = [
         str(chat_id),
         name if name else "",
         username if username else "",
-        "",          # team (خالی تا بعداً مدیر تعیین کند)
+        "",          # team (خالی)
         "",          # customname
-        "No"         # welcomed = No
+        "No"         # welcomed
     ]
 
     append_row("members", row)
+
+
+
+# ----------------------------------------------------
+#  ثبت کاربر جدید فقط اگر در شیت وجود نداشته باشد
+#  (تابع مورد نیاز handler.py)
+# ----------------------------------------------------
+def add_member_if_not_exists(chat_id, name="", username=""):
+    user = find_member(chat_id)
+
+    # اگر قبلاً وجود دارد همان را برگردان
+    if user:
+        return user
+
+    # اگر وجود ندارد → اضافه کن
+    row = [
+        str(chat_id),
+        name if name else "",
+        username if username else "",
+        "",        # team = تعیین نشده
+        name,      # customname موقت = name
+        "No"       # welcomed
+    ]
+
+    append_row("members", row)
+
+    return {
+        "chat_id": str(chat_id),
+        "name": name,
+        "username": username,
+        "team": "",
+        "customname": name,
+        "welcomed": "No",
+    }
