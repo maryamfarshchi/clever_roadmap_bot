@@ -1,10 +1,10 @@
 # app/core/members.py
 
-from core.sheets import get_sheet, append_row
+from core.sheets import get_sheet, append_row, update_cell
 
 
 # ----------------------------------------------------
-#  خواندن کاربر از شیت members
+# پیدا کردن کاربر در شیت members
 # ----------------------------------------------------
 def find_member(chat_id):
     rows = get_sheet("members")
@@ -36,50 +36,43 @@ def find_member(chat_id):
 
 
 # ----------------------------------------------------
-#  ثبت کاربر جدید (نسخه پایه)
+# ثبت کاربر جدید در members اگر وجود نداشت
 # ----------------------------------------------------
-def add_member(chat_id, name, username):
-    row = [
-        str(chat_id),
-        name if name else "",
-        username if username else "",
-        "",          # team (خالی)
-        "",          # customname
-        "No"         # welcomed
-    ]
-
-    append_row("members", row)
-
-
-
-# ----------------------------------------------------
-#  ثبت کاربر جدید فقط اگر در شیت وجود نداشته باشد
-#  (تابع مورد نیاز handler.py)
-# ----------------------------------------------------
-def add_member_if_not_exists(chat_id, name="", username=""):
+def add_member_if_not_exists(chat_id, name, username):
     user = find_member(chat_id)
-
-    # اگر قبلاً وجود دارد همان را برگردان
     if user:
-        return user
+        return
 
-    # اگر وجود ندارد → اضافه کن
     row = [
         str(chat_id),
         name if name else "",
         username if username else "",
-        "",        # team = تعیین نشده
-        name,      # customname موقت = name
-        "No"       # welcomed
+        "",      # team
+        "",      # customname
+        "No"     # welcomed
     ]
 
     append_row("members", row)
 
-    return {
-        "chat_id": str(chat_id),
-        "name": name,
-        "username": username,
-        "team": "",
-        "customname": name,
-        "welcomed": "No",
-    }
+
+
+# ----------------------------------------------------
+# ست کردن welcomed = Yes فقط یکبار
+# ----------------------------------------------------
+def mark_welcomed(chat_id):
+    rows = get_sheet("members")
+
+    if not rows or len(rows) < 2:
+        return
+
+    header = rows[0]
+    table = rows[1:]
+
+    for idx, row in enumerate(table, start=1):
+        if not row:
+            continue
+
+        if str(row[0]).strip() == str(chat_id):
+            # ستون welcomed ستون 6 است → Index = 5
+            update_cell("members", idx, 5, "Yes")
+            return
