@@ -1,7 +1,6 @@
 # app/core/members.py
 
-from core.sheets import get_sheet, append_row, update_cell
-
+from core.sheets import get_sheet, append_row
 
 # ----------------------------------------------------
 # پیدا کردن کاربر در شیت members
@@ -19,24 +18,25 @@ def find_member(chat_id):
         if not row:
             continue
 
+        # تبدیل به متن برای جلوگیری از mismatch
         row_chat_id = str(row[0]).strip()
+        chat_id_str = str(chat_id).strip()
 
-        if row_chat_id == str(chat_id).strip():
+        if row_chat_id == chat_id_str:
             return {
                 "chat_id": row_chat_id,
-                "name": row[1].strip() if len(row) > 1 and row[1] else "",
-                "username": row[2].strip() if len(row) > 2 and row[2] else "",
-                "team": row[3].strip() if len(row) > 3 and row[3] else "",
-                "customname": row[4].strip() if len(row) > 4 and row[4] else "",
-                "welcomed": row[5].strip() if len(row) > 5 and row[5] else "",
+                "name": row[1] if len(row) > 1 else "",
+                "username": row[2] if len(row) > 2 else "",
+                "team": row[3] if len(row) > 3 else "",
+                "customname": row[4] if len(row) > 4 else "",
+                "welcomed": row[5] if len(row) > 5 else "",
             }
 
     return None
 
 
-
 # ----------------------------------------------------
-# ثبت کاربر جدید در members اگر وجود نداشت
+# اگر کاربر نبود، ثبت کن
 # ----------------------------------------------------
 def add_member_if_not_exists(chat_id, name, username):
     user = find_member(chat_id)
@@ -45,19 +45,18 @@ def add_member_if_not_exists(chat_id, name, username):
 
     row = [
         str(chat_id),
-        name if name else "",
-        username if username else "",
-        "",      # team
-        "",      # customname
-        "No"     # welcomed
+        name or "",
+        username or "",
+        "",        # team
+        "",        # customname
+        "No"       # welcomed
     ]
 
     append_row("members", row)
 
 
-
 # ----------------------------------------------------
-# ست کردن welcomed = Yes فقط یکبار
+# تغییر welcomed به Yes
 # ----------------------------------------------------
 def mark_welcomed(chat_id):
     rows = get_sheet("members")
@@ -68,11 +67,23 @@ def mark_welcomed(chat_id):
     header = rows[0]
     table = rows[1:]
 
-    for idx, row in enumerate(table, start=1):
+    updated = False
+    new_rows = [header]
+
+    for row in table:
         if not row:
             continue
 
-        if str(row[0]).strip() == str(chat_id):
-            # ستون welcomed ستون 6 است → Index = 5
-            update_cell("members", idx, 5, "Yes")
-            return
+        row_chat_id = str(row[0]).strip()
+        chat_id_str = str(chat_id).strip()
+
+        if row_chat_id == chat_id_str:
+            row[5] = "Yes"
+            updated = True
+
+        new_rows.append(row)
+
+    if updated:
+        # بازنویسی کامل شیت
+        from core.sheets import overwrite_sheet
+        overwrite_sheet("members", new_rows)
