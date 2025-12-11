@@ -1,7 +1,7 @@
 # app/bot/handler.py
 
 from bot.keyboards import main_keyboard
-from bot.helpers import send_message
+from bot.helpers import send_message, send_buttons
 from core.members import find_member, add_member_if_not_exists, mark_welcomed
 from core.tasks import get_tasks_for
 from core.messages import get_random_message
@@ -9,14 +9,19 @@ from core.state import clear_user_state
 
 
 # ============================================================
-#  پردازش اصلی آپدیت‌های دریافتی از تلگرام
+#  پردازش آپدیت (Message + CallbackQuery)
 # ============================================================
 def process_update(update):
     try:
+        # ----------------------------------------------------
+        #  اگر CallbackQuery بود
+        # ----------------------------------------------------
+        if "callback_query" in update:
+            return process_callback(update["callback_query"])
 
-        # -------------------------------
-        # فقط Message را قبول کن
-        # -------------------------------
+        # ----------------------------------------------------
+        #  فقط Message
+        # ----------------------------------------------------
         if "message" not in update:
             return
 
@@ -28,26 +33,20 @@ def process_update(update):
         if not chat_id:
             return
 
-        # Debug مهم برای اطمینان از chat_id
         print("CHAT_ID =", chat_id)
 
         # ----------------------------------------------------
-        #  1) پیدا کردن کاربر در members
+        #  پیدا کردن کاربر در members
         # ----------------------------------------------------
         user = find_member(chat_id)
 
-        # ----------------------------------------------------
-        #  2) اگر یافت نشد → یک بار ثبت → پیام ثابت
-        # ----------------------------------------------------
         if not user:
-
             add_member_if_not_exists(
                 chat_id=chat_id,
                 name=chat.get("first_name", "") or "",
                 username=chat.get("username", "") or ""
             )
 
-            # این پیام دیگر تکراری نمی‌شود
             return send_message(
                 chat_id,
                 "👋 سلام! شما در سیستم ثبت نشده‌اید.\n"
@@ -55,12 +54,10 @@ def process_update(update):
             )
 
         # ----------------------------------------------------
-        #  3) خوش آمد فقط وقتی welcomed != Yes
+        # خوش‌آمدگویی (فقط یک بار)
         # ----------------------------------------------------
         if user.get("welcomed", "") != "Yes":
-
             mark_welcomed(chat_id)
-
             return send_message(
                 chat_id,
                 f"سلام {user['customname'] or user['name']} عزیز! 👋\n"
@@ -69,7 +66,7 @@ def process_update(update):
             )
 
         # ----------------------------------------------------
-        #  4) فرمان /start
+        # فرمان /start
         # ----------------------------------------------------
         if text == "/start":
             clear_user_state(chat_id)
@@ -81,7 +78,7 @@ def process_update(update):
             )
 
         # ----------------------------------------------------
-        #  5) منوی اصلی
+        # منو
         # ----------------------------------------------------
         if text == "لیست کارهای امروز":
             return send_today(chat_id, user)
@@ -93,15 +90,33 @@ def process_update(update):
             return send_pending(chat_id, user)
 
         # ----------------------------------------------------
-        #  6) اگر هیچ گزینه‌ای نبود → پیام خطا
+        # گزینه نامعتبر
         # ----------------------------------------------------
         return send_message(chat_id, "❗ لطفاً از دکمه‌های منو استفاده کن.")
 
     except Exception as e:
-        # ارسال خطا برای مدیر
         send_message(341781615, f"⚠ خطای بات:\n{str(e)}")
         print("PROCESS_UPDATE ERROR:", e)
         return
+
+
+
+# ============================================================
+#  پردازش Callback های دکمه‌ها
+# ============================================================
+def process_callback(cb):
+    chat_id = cb["message"]["chat"]["id"]
+    data = cb.get("data", "")
+
+    if data.startswith("DONE::"):
+        title = data.replace("DONE::", "")
+        return send_message(chat_id, f"🎉 عالی! «{title}» تحویل شد. مرسی ازت ✔️")
+
+    if data.startswith("NOT_DONE::"):
+        title = data.replace("NOT_DONE::", "")
+        return send_message(chat_id, f"🔔 اوکی! «{title}» هنوز انجام نشده. یادم باشه پیگیری کنم ❗")
+
+    return send_message(chat_id, "❗ داده نامعتبر.")
 
 
 
@@ -151,7 +166,7 @@ def send_week(chat_id, user):
 
 
 # ============================================================
-#  ارسال «تسک‌های انجام نشده»
+#  ارسال «تسک‌های انجام نشده» با دکمه + پیام فان
 # ============================================================
 def send_pending(chat_id, user):
     team = user["team"]
@@ -160,14 +175,50 @@ def send_pending(chat_id, user):
     if not tasks:
         return send_message(chat_id, "🎉 همه کارها انجام شده! عالیه 👌")
 
-    text = f"⚠ *کارهای انجام‌نشده ({team})*\n\n"
     for t in tasks:
-        message = get_random_message(
-            "DUE",
-            NAME=user["customname"],
-            TEAM=user["team"],
-            TITLE=t.get("title", "")
-        )
-        text += message + "\n\n"
+        title = t.get("title", "")
+        date = t.get("date", "")
+        date_fa = t.get("date_fa", date)
+        delay_days = t.get("delay_days", 0)
 
-    send_message(chat_id, text)
+        # -------------------------
+        # انتخاب نوع پیام
+        # -------------------------
+        if delay_days > 0:
+            msg_type = "OVR"     # task is overdue
+        else:
+            msg_type = "DUE"     # deadline is today
+
+        # -------------------------
+        # ساخت پیام نهایی
+        # -------------------------
+        funny = get_random_message(
+            msg_type,
+            NAME=user["customname"],
+            TEAM=team,
+            TITLE=title,
+            DAYS=delay_days,
+            DATE_FA=date_fa
+        )
+
+        # -------------------------
+        # متن نهایی (فرمت مشابه اسکرین‌شات)
+        # -------------------------
+        text = (
+            f"📌 *تسک انجام‌نشده تیم {team}*\n"
+            f"📆 *{date_fa}*\n"
+            f"✏️ *{title}*\n\n"
+            f"{funny}"
+        )
+
+        # -------------------------
+        # دکمه‌ها
+        # -------------------------
+        buttons = [
+            [
+                {"text": "✔️ بله تحویل دادم", "callback_data": f"DONE::{title}"},
+                {"text": "❌ نه هنوز تحویل ندادم", "callback_data": f"NOT_DONE::{title}"}
+            ]
+        ]
+
+        send_buttons(chat_id, text, buttons)
