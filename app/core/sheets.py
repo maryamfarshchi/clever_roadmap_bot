@@ -1,4 +1,6 @@
 # app/core/sheets.py
+# -*- coding: utf-8 -*-
+
 import os
 import requests
 
@@ -36,11 +38,9 @@ def append_row(sheet, row):
         print("append_row ERROR:", e)
 
 
-
 # ----------------------------------------------------
 #  آپدیت یک سلول مشخص (rowIndex, colIndex)
-#     → توجه: index از 0 نیست
-#     → index از 1 شروع می‌شود (مثل گوگل‌شیت)
+#  index از 1 شروع می‌شود (مثل گوگل‌شیت)
 # ----------------------------------------------------
 def update_cell(sheet, row_index, col_index, value):
     try:
@@ -49,10 +49,9 @@ def update_cell(sheet, row_index, col_index, value):
             "update": {
                 "row": row_index,
                 "col": col_index,
-                "value": value
-            }
+                "value": value,
+            },
         }
         requests.post(API, json=payload, timeout=10)
-
     except Exception as e:
         print("update_cell ERROR:", e)

@@ -1,209 +1,175 @@
 # app/core/tasks.py
-from core.sheets import get_sheet
+# -*- coding: utf-8 -*-
+
 from datetime import datetime, timedelta
+from core.sheets import get_sheet, update_cell
+
+DATE_FMT = "%m/%d/%Y"
 
 
-# -----------------------------
-#  تمیز کردن نام تیم
-# -----------------------------
-def normalize_team(t):
-    if not t:
-        return ""
-    return str(t).strip().lower()
+def normalize_team(name):
+    return str(name or "").strip().lower()
 
 
-# -----------------------------
-#  تبدیل تاریخ میلادی شیت (ستون Date)
-# -----------------------------
 def parse_date(en):
     if not en:
         return None
     try:
-        # فرمت تایم‌شیت:  12/5/2025
-        return datetime.strptime(en, "%m/%d/%Y")
+        return datetime.strptime(en, DATE_FMT)
     except Exception:
         return None
 
 
-# -----------------------------
-#   گرفتن تسک‌ها برای یک تیم
-#   mode:
-#     - today
-#     - week
-#     - pending (بدون status)
-#     - late   (گذشته از امروز)
-#     - esc    (بیش از ۵ روز تأخیر)
-# -----------------------------
-def get_tasks_for(team, mode=None):
+# ----------------------------------------------------
+# ساخت لیست کامل تسک‌ها از شیت
+# ----------------------------------------------------
+def _build_tasks():
     rows = get_sheet("Time Sheet")
     if not rows or len(rows) < 2:
         return []
 
-    # ردیف اول = هدر
-    data = rows[1:]
+    data = rows[1:]  # رد شدن از هدر
+    all_tasks = []
+    today = datetime.today().date()
 
-    team_norm = normalize_team(team)
-    today = datetime.today()
-    week_limit = today + timedelta(days=7)
-
-    tasks = []
-
-    # ساختار ستون‌های تایم‌شیت (index صفرم):
-    #
-    #  0  Day
-    #  1  Shamsi_Date
-    #  2  Date (EN)
-    #  3  Time
-    #
-    #  4  خالی/رزرو (اگر هست نادیده می‌گیریم)
-    #
-    #  5..9   Production   → title1, type1, comment1, status1, team1
-    # 10..14  Ai Production→ title2, type2, comment2, status2, team2
-    # 15..19  Digital      → title3, type3, comment3, status3, team3
-    #
-    #   در هر بلاک ۵ تایی:
-    #   1: Title
-    #   2: Content Type
-    #   3: Comment
-    #   4: Status
-    #   5: Team
-    #
-
-    for row in data:
+    for idx, row in enumerate(data):
         if not row:
             continue
 
-        day_name = row[0] if len(row) > 0 else ""
+        # ستون‌های 1 تا 4
+        day_fa = row[0] if len(row) > 0 else ""
         date_fa = row[1] if len(row) > 1 else ""
         date_en = row[2] if len(row) > 2 else ""
-        time = row[3] if len(row) > 3 else ""
+        time_str = row[3] if len(row) > 3 else ""
 
-        d = parse_date(date_en)
+        dt = parse_date(date_en)
+        deadline_date = dt.date() if dt else None
 
-        # ---------- Production (بلاک ۵تایی اول بعد از ستون 4) ----------
-        title1, type1, comment1, status1, team1 = ([""] * 5)
-        if len(row) > 9:
-            title1, type1, comment1, status1, team1 = row[5:10]
-
-        # ---------- Ai Production ----------
-        title2, type2, comment2, status2, team2 = ([""] * 5)
-        if len(row) > 14:
-            title2, type2, comment2, status2, team2 = row[10:15]
-
-        # ---------- Digital ----------
-        title3, type3, comment3, status3, team3 = ([""] * 5)
-        if len(row) > 19:
-            title3, type3, comment3, status3, team3 = row[15:20]
-
-        # =====================================================
-        #   Production
-        # =====================================================
-        if (
-            team_norm == "production"
-            and normalize_team(team1) == "production"
-            and title1
-        ):
-            tasks.append(
-                {
-                    "team": "Production",
-                    "title": title1,
-                    "type": type1,
-                    "comment": comment1,
-                    "status": status1,
-                    "date": date_en,
-                    "date_fa": date_fa,
-                    "day": day_name,
-                    "time": time,
-                    "datetime": d,
-                }
-            )
-
-        # =====================================================
-        #   Ai Production
-        # =====================================================
-        if (
-            team_norm == "ai production"
-            and normalize_team(team2) == "ai production"
-            and title2
-        ):
-            tasks.append(
-                {
-                    "team": "Ai Production",
-                    "title": title2,
-                    "type": type2,
-                    "comment": comment2,
-                    "status": status2,
-                    "date": date_en,
-                    "date_fa": date_fa,
-                    "day": day_name,
-                    "time": time,
-                    "datetime": d,
-                }
-            )
-
-        # =====================================================
-        #   Digital
-        # =====================================================
-        if (
-            team_norm == "digital"
-            and normalize_team(team3) == "digital"
-            and title3
-        ):
-            tasks.append(
-                {
-                    "team": "Digital",
-                    "title": title3,
-                    "type": type3,
-                    "comment": comment3,
-                    "status": status3,
-                    "date": date_en,
-                    "date_fa": date_fa,
-                    "day": day_name,
-                    "time": time,
-                    "datetime": d,
-                }
-            )
-
-    # ===========================
-    # فیلترها
-    # ===========================
-    if mode == "today":
-        return [
-            t
-            for t in tasks
-            if t["datetime"] and t["datetime"].date() == today.date()
+        # هر تیم یک بلوک 5 تایی:
+        # base = 4 + 5*k   → title, type, comment, status, team
+        groups = [
+            (0, "production"),
+            (1, "ai production"),
+            (2, "digital"),
         ]
 
-    if mode == "week":
-        return [
-            t
-            for t in tasks
-            if t["datetime"] and today <= t["datetime"] <= week_limit
-        ]
-
-    if mode == "pending":
-        # تسک‌هایی که status خالی دارند
-        return [t for t in tasks if not t["status"]]
-
-    if mode == "late":
-        return [
-            t
-            for t in tasks
-            if t["datetime"] and t["datetime"].date() < today.date()
-        ]
-
-    if mode == "esc":
-        # بیشتر از ۵ روز تأخیر
-        esc_list = []
-        for t in tasks:
-            dt = t["datetime"]
-            if not dt:
+        for k, _logical_team in groups:
+            base = 4 + 5 * k
+            if len(row) <= base:
                 continue
-            delay = (today.date() - dt.date()).days
-            if delay > 5:
-                t_copy = dict(t)
-                t_copy["delay_days"] = delay
-                esc_list.append(t_copy)
-        return esc_list
 
+            title = row[base] if len(row) > base else ""
+            ctype = row[base + 1] if len(row) > base + 1 else ""
+            comment = row[base + 2] if len(row) > base + 2 else ""
+            status = row[base + 3] if len(row) > base + 3 else ""
+            team_name_cell = row[base + 4] if len(row) > base + 4 else ""
+
+            if not title or not team_name_cell:
+                continue
+
+            team_norm = normalize_team(team_name_cell)
+            if team_norm not in ("production", "ai production", "digital"):
+                continue
+
+            delay_days = None
+            if deadline_date:
+                delay_days = (today - deadline_date).days
+
+            all_tasks.append(
+                {
+                    "row_index": idx + 2,  # 1-based (به خاطر هدر)
+                    "group_index": k,     # 0=Production,1=AI,2=Digital
+                    "team": team_norm,
+                    "title": str(title),
+                    "type": ctype,
+                    "comment": comment,
+                    "status": str(status or "").strip().lower(),  # 'done' / 'not yet' / ''
+                    "date_en": date_en,
+                    "date_fa": date_fa,
+                    "day_fa": day_fa,
+                    "time": time_str,
+                    "deadline_date": deadline_date,
+                    "delay_days": delay_days,
+                }
+            )
+
+    return all_tasks
+
+
+def _filter_by_team(team):
+    team_norm = normalize_team(team)
+    return [t for t in _build_tasks() if t["team"] == team_norm]
+
+
+# ----------------------------------------------------
+#  تسک‌های امروز
+# ----------------------------------------------------
+def get_tasks_today(team):
+    today = datetime.today().date()
+    tasks = []
+    for t in _filter_by_team(team):
+        if t["deadline_date"] and t["deadline_date"] == today:
+            tasks.append(t)
     return tasks
+
+
+# ----------------------------------------------------
+#  تسک‌های این هفته (هفت روز آینده)
+# ----------------------------------------------------
+def get_tasks_week(team):
+    today = datetime.today().date()
+    week_limit = today + timedelta(days=7)
+    tasks = []
+    for t in _filter_by_team(team):
+        d = t["deadline_date"]
+        if d and today <= d <= week_limit:
+            tasks.append(t)
+    return tasks
+
+
+# ----------------------------------------------------
+#  تسک‌های تحویل‌نشده (برای ریمایندر)
+# ----------------------------------------------------
+def get_tasks_pending(team):
+    """
+    تسک‌هایی که هنوز status = done ندارند
+    و ددلاین دارند (گذشته / امروز / آینده نزدیک).
+    """
+    tasks = []
+    for t in _filter_by_team(team):
+        if t["status"] == "done":
+            continue
+        if not t["deadline_date"]:
+            continue
+        tasks.append(t)
+    return tasks
+
+
+# ----------------------------------------------------
+#  آپدیت status یک تسک
+# ----------------------------------------------------
+def update_task_status(title, team, new_status="done"):
+    """
+    اولین تسکی که عنوان و تیمش مطابق باشد را پیدا می‌کند
+    و ستون status را به new_status تغییر می‌دهد.
+    """
+    tasks = _filter_by_team(team)
+    target = None
+    for t in tasks:
+        if str(t["title"]).strip() == str(title).strip():
+            target = t
+            break
+
+    if not target:
+        return False
+
+    row_index = target["row_index"]
+    k = target["group_index"]
+
+    # base = 4 + 5*k → title
+    # status = base + 3
+    base = 4 + 5 * k
+    status_col = base + 3 + 1  # 0-based → 1-based
+
+    update_cell("Time Sheet", row_index, status_col, new_status)
+    return True

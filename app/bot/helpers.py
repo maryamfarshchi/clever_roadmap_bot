@@ -1,87 +1,70 @@
-import os
-import requests
-from dotenv import load_dotenv
+import re
+from datetime import datetime
 
-# ----------------------------------------
-# Load environment variables
-# ----------------------------------------
-load_dotenv()
-
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    raise ValueError("❌ BOT_TOKEN is missing in environment variables.")
-
-TG_SEND_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-TG_EDIT_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
-
-
-# ----------------------------------------
-# Send Message (MAIN FUNCTION)
-# ----------------------------------------
-def send_message(chat_id, text, reply_markup=None):
-    """
-    Sends a Telegram message.
-    Supports Markdown + Inline/Reply keyboards.
-    """
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "Markdown"
-    }
-
-    if reply_markup:
-        payload["reply_markup"] = reply_markup
-
+# -------------------------------------
+#  Safe getter
+# -------------------------------------
+def getval(row, index, default=""):
+    """Prevent index errors when reading sheet rows"""
     try:
-        r = requests.post(TG_SEND_URL, json=payload)
-        return r.json()
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return row[index]
+    except:
+        return default
 
 
-# ----------------------------------------
-# Edit message (optional but useful)
-# ----------------------------------------
-def edit_message(chat_id, message_id, new_text, reply_markup=None):
-    payload = {
-        "chat_id": chat_id,
-        "message_id": message_id,
-        "text": new_text,
-        "parse_mode": "Markdown"
-    }
+# -------------------------------------
+#  Clean text
+# -------------------------------------
+def clean_text(t):
+    """Remove extra spaces, tabs, None, etc."""
+    if t is None:
+        return ""
+    return re.sub(r"\s+", " ", str(t)).strip()
 
-    if reply_markup:
-        payload["reply_markup"] = reply_markup
 
+# -------------------------------------
+#  Task list formatting
+# -------------------------------------
+def format_task_list(tasks, title="لیست تسک‌ها"):
+    """
+    Convert list of tasks into nice readable output.
+    expected input:
+       [{"title": "...", "date": "...", "time": "...", "status": "..."}]
+    """
+    if not tasks:
+        return "تسکی برای نمایش وجود ندارد."
+
+    msg = f"📋 *{title}*\n\n"
+    for t in tasks:
+        line = f"• {clean_text(t['title'])}"
+
+        if t.get("date"):
+            line += f"  🗓 {t['date']}"
+
+        if t.get("time"):
+            line += f"  ⏰ {t['time']}"
+
+        msg += line + "\n"
+
+    return msg
+
+
+# -------------------------------------
+#  Jalali date diff (for reminders)
+# -------------------------------------
+def jalali_diff(shamsi_date, today_jalali):
+    """
+    Calculate difference between 2 Persian dates.
+    format must be yyyy/mm/dd
+    return int(days)
+    """
     try:
-        r = requests.post(TG_EDIT_URL, json=payload)
-        return r.json()
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+        y1, m1, d1 = map(int, shamsi_date.split("/"))
+        y2, m2, d2 = map(int, today_jalali.split("/"))
 
+        dt1 = datetime(y1, m1, d1)
+        dt2 = datetime(y2, m2, d2)
 
-# ----------------------------------------
-# Utility: log to console
-# ----------------------------------------
-def log(message: str):
-    """Simple console log."""
-    print(f"[LOG] {message}")
-
-
-# ----------------------------------------
-# Utility: extract chat_id & text safely
-# ----------------------------------------
-def extract_message(update: dict):
-    """
-    Safely extracts chat_id, text, message_id
-    from any Telegram update (text, buttons, etc.)
-    """
-    if "message" in update:
-        msg = update["message"]
-        return msg["chat"]["id"], msg.get("text"), msg.get("message_id")
-
-    if "callback_query" in update:
-        cq = update["callback_query"]
-        return cq["message"]["chat"]["id"], cq["data"], cq["message"]["message_id"]
-
-    return None, None, None
+        return (dt1 - dt2).days
+    except:
+        return None
