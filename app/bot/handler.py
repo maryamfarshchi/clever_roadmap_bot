@@ -99,8 +99,7 @@ def process_callback(cb):
     data = cb.get("data", "")
 
     if data.startswith("DONE::"):
-        task_id = data.replace("DONE::", "")
-        update_task_status(task_id, "done")
+     update_task_status(task_id, "done")
         return send_message(chat_id, "✔️ انجام شد")
 
     if data.startswith("NOT_YET::"):
@@ -191,9 +190,14 @@ def send_pending(chat_id, user):
             send_message(chat_id, base)
             continue
 
-        buttons = [[
-            {"text": "✔️ انجام شد", "callback_data": f"DONE::{t['task_id']}"},
-            {"text": "❌ هنوز نه", "callback_data": f"NOT_YET::{t['task_id']}"},
-        ]]
+task_id = t["task_id"]
 
-        send_buttons(chat_id, base, buttons)
+buttons = [
+    [
+        {"text": "✔️ بله تحویل دادم", "callback_data": f"DONE::{task_id}"},
+        {"text": "❌ نه هنوز تحویل ندادم", "callback_data": f"NOT_YET::{task_id}"},
+    ]
+]
+
+send_buttons(chat_id, base_text, buttons)
+
