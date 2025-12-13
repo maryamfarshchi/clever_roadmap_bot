@@ -1,7 +1,7 @@
 # app/core/tasks.py
 # -*- coding: utf-8 -*-
 
-from datetime import datetime, timedelta
+from datetime import datetime
 import re
 from core.sheets import get_sheet, update_cell
 
@@ -9,14 +9,14 @@ DATE_FMT = "%m/%d/%Y"
 
 
 # ----------------------------------------------------
-# Utils
+# utils
 # ----------------------------------------------------
-def normalize(s):
-    return str(s or "").strip()
+def normalize(text):
+    return str(text or "").strip()
 
 
-def normalize_team(s):
-    return normalize(s).lower()
+def normalize_team(name):
+    return normalize(name).lower()
 
 
 def clean_date_string(en):
@@ -27,77 +27,72 @@ def clean_date_string(en):
 
 def parse_date(en):
     try:
-        cleaned = clean_date_string(en)
-        if not cleaned:
+        en = clean_date_string(en)
+        if not en:
             return None
-        return datetime.strptime(cleaned, DATE_FMT).date()
+        return datetime.strptime(en, DATE_FMT).date()
     except:
         return None
 
 
-def safe(row, idx):
-    try:
-        return row[idx]
-    except:
-        return ""
-
-
 # ----------------------------------------------------
-# Build tasks from sheet
+# build all tasks from sheet
 # ----------------------------------------------------
 def _build_tasks():
     rows = get_sheet("Time Sheet")
     if not rows or len(rows) < 2:
         return []
 
-    data = rows[1:]
     today = datetime.today().date()
     tasks = []
 
-    groups = [
-        (4, "production"),
-        (9, "ai production"),
-        (14, "digital"),
-    ]
+    for row_idx, row in enumerate(rows[1:], start=2):
 
-    for i, row in enumerate(data):
-        if not row:
-            continue
-
-        day_fa   = safe(row, 0)
-        date_fa  = safe(row, 1)
-        date_en  = safe(row, 2)
-        time_str = safe(row, 3)
+        # عمومی
+        day_fa   = row[0] if len(row) > 0 else ""
+        date_fa  = row[1] if len(row) > 1 else ""
+        date_en  = row[2] if len(row) > 2 else ""
+        time_str = row[3] if len(row) > 3 else ""
 
         deadline = parse_date(date_en)
         delay = (today - deadline).days if deadline else None
 
-        for base, logical_team in groups:
-            title   = normalize(safe(row, base))
-            ctype   = normalize(safe(row, base + 1))
-            comment = normalize(safe(row, base + 2))
-            status  = normalize(safe(row, base + 3)).lower()
-            team    = normalize_team(safe(row, base + 4))
+        # بلاک‌ها دقیقاً طبق شیت
+        blocks = [
+            (4,  "production"),     # 5-9
+            (9,  "ai production"),  # 10-14
+            (14, "digital"),        # 15-19
+        ]
 
+        for base, logical_team in blocks:
+
+            if len(row) <= base + 4:
+                continue
+
+            title   = normalize(row[base])
+            ctype   = normalize(row[base + 1])
+            comment = normalize(row[base + 2])
+            status  = normalize(row[base + 3]).lower()
+            team    = normalize_team(row[base + 4])
+
+            # ❗ قانون تو: title باید حتماً باشد
+            if not title:
+                continue
+
+            # تیم باید match شود
             if team not in ("production", "ai production", "digital", "all"):
                 continue
 
-            # title خالی هم تسکه
-            if not title:
-                title = "بدون عنوان"
-
-            # status خالی = انجام نشده
-            is_done = status == "done"
-
             tasks.append({
-                "row_index": i + 2,
+                "row_index": row_idx,
                 "base": base,
                 "team": team,
+                "logical_team": logical_team,
                 "title": title,
                 "type": ctype,
                 "comment": comment,
-                "status": status,
-                "is_done": is_done,
+                "status": status,   # done / not yet / ""
+                "is_done": status == "done",
                 "date_fa": date_fa,
                 "date_en": date_en,
                 "day_fa": day_fa,
@@ -110,48 +105,69 @@ def _build_tasks():
 
 
 # ----------------------------------------------------
-# Filters
+# team filter
 # ----------------------------------------------------
 def _filter_by_team(team):
     team = normalize_team(team)
+    all_tasks = _build_tasks()
+
     if team == "all":
-        return _build_tasks()
-    return [t for t in _build_tasks() if t["team"] == team]
+        return all_tasks
+
+    return [t for t in all_tasks if t["team"] == team]
 
 
 # ----------------------------------------------------
-# Public APIs
+# TODAY
 # ----------------------------------------------------
 def get_tasks_today(team):
     today = datetime.today().date()
     return [
         t for t in _filter_by_team(team)
-        if t["deadline_date"] == today and not t["is_done"]
+        if t["deadline_date"] == today
     ]
 
 
+# ----------------------------------------------------
+# WEEK (future only)
+# ----------------------------------------------------
 def get_tasks_week(team):
     today = datetime.today().date()
-    end = today + timedelta(days=7)
     return [
         t for t in _filter_by_team(team)
-        if t["deadline_date"] and today <= t["deadline_date"] <= end
+        if t["deadline_date"] and 0 <= (t["deadline_date"] - today).days <= 7
     ]
 
 
+# ----------------------------------------------------
+# 🔥 PENDING (قانون تو)
+# ----------------------------------------------------
 def get_tasks_pending(team):
-    return [
-        t for t in _filter_by_team(team)
-        if not t["is_done"] and t["deadline_date"]
-    ]
+    """
+    هر تسکی که:
+    - title دارد
+    - status != done
+    مهم نیست تاریخش کیه
+    """
+    tasks = []
+
+    for t in _filter_by_team(team):
+        if not t["is_done"]:
+            tasks.append(t)
+
+    return tasks
 
 
+# ----------------------------------------------------
+# update status
+# ----------------------------------------------------
 def update_task_status(title, team, new_status="done"):
     team = normalize_team(team)
+
     for t in _filter_by_team(team):
-        if normalize(t["title"]) == normalize(title):
-            row = t["row_index"]
-            status_col = t["base"] + 3 + 1  # 1-based
-            update_cell("Time Sheet", row, status_col, new_status)
+        if t["title"] == title:
+            status_col = t["base"] + 4  # status column (0-based)
+            update_cell("Time Sheet", t["row_index"], status_col + 1, new_status)
             return True
+
     return False
