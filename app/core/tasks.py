@@ -6,100 +6,87 @@ import re
 from core.sheets import get_sheet, update_cell
 
 DATE_FMT = "%m/%d/%Y"
+TASKS_SHEET = "Tasks"
 
 
-# ----------------------------------------------------
+# -------------------------------------------------
 # Helpers
-# ----------------------------------------------------
-def normalize(s):
+# -------------------------------------------------
+def clean(s):
     return str(s or "").strip()
 
 
 def normalize_team(s):
-    return normalize(s).lower()
+    return clean(s).lower()
 
 
-def clean_date(s):
-    if not s:
-        return ""
-    return re.sub(r"[\u200e\u200f\u202a-\u202e]", "", str(s)).strip()
-
-
-def parse_date(s):
+def parse_date(en):
     try:
-        s = clean_date(s)
-        if not s:
-            return None
-        return datetime.strptime(s, DATE_FMT).date()
+        en = re.sub(r"[\u200e\u200f\u202a-\u202e]", "", clean(en))
+        return datetime.strptime(en, DATE_FMT).date()
     except:
         return None
 
 
-# ----------------------------------------------------
-# Load tasks from Tasks sheet (ONLY SOURCE)
-# ----------------------------------------------------
+# -------------------------------------------------
+# Load all tasks from Tasks sheet
+# -------------------------------------------------
 def _load_tasks():
-    rows = get_sheet("Tasks")
+    rows = get_sheet(TASKS_SHEET)
     if not rows or len(rows) < 2:
         return []
 
-    header = rows[0]
     data = rows[1:]
     today = datetime.today().date()
     tasks = []
 
-    for idx, row in enumerate(data):
-        row_map = dict(zip(header, row))
+    for i, row in enumerate(data, start=2):
+        try:
+            task_id = clean(row[0])
+            team = normalize_team(row[1])
+            date_en = row[2]
+            date_fa = row[3]
+            title = clean(row[6])
+            status = clean(row[9]).lower()
+            done = clean(row[18]).lower()
 
-        task_id = normalize(row_map.get("TaskID"))
-        title = normalize(row_map.get("Content Title"))
-        team = normalize_team(row_map.get("Team"))
+            if not task_id or not team or not title:
+                continue
 
-        if not task_id or not title or not team:
-            continue  # ❗ شرط تو: title حتماً باید باشه
+            deadline = parse_date(date_en)
+            delay = (today - deadline).days if deadline else None
 
-        date_en = row_map.get("Date_EN")
-        deadline = parse_date(date_en)
-
-        delay = None
-        if deadline:
-            delay = (today - deadline).days
-
-        tasks.append({
-            "row_index": idx + 2,  # 1-based with header
-            "task_id": task_id,
-            "team": team,
-            "title": title,
-            "type": row_map.get("Content Type"),
-            "comment": row_map.get("Comment"),
-            "status": normalize(row_map.get("Status")).lower(),
-            "date_en": date_en,
-            "date_fa": row_map.get("Date_FA"),
-            "day_fa": row_map.get("DayName"),
-            "time": row_map.get("Time"),
-            "deadline": deadline,
-            "delay": delay,
-        })
+            tasks.append({
+                "row_index": i,
+                "task_id": task_id,
+                "team": team,
+                "title": title,
+                "date_fa": date_fa,
+                "deadline": deadline,
+                "delay_days": delay,
+                "done": done == "yes",
+                "status": status,
+            })
+        except:
+            continue
 
     return tasks
 
 
-# ----------------------------------------------------
+# -------------------------------------------------
 # Filters
-# ----------------------------------------------------
+# -------------------------------------------------
 def _by_team(team):
     team = normalize_team(team)
     tasks = _load_tasks()
-
     if team == "all":
         return tasks
-
     return [t for t in tasks if t["team"] == team]
 
 
-# ----------------------------------------------------
+# -------------------------------------------------
 # Public APIs
-# ----------------------------------------------------
+# -------------------------------------------------
 def get_tasks_today(team):
     today = datetime.today().date()
     return [
@@ -110,38 +97,28 @@ def get_tasks_today(team):
 
 def get_tasks_week(team):
     today = datetime.today().date()
-    limit = today + timedelta(days=7)
+    end = today + timedelta(days=7)
     return [
         t for t in _by_team(team)
-        if t["deadline"] and today <= t["deadline"] <= limit
+        if t["deadline"] and today <= t["deadline"] <= end
     ]
 
 
 def get_tasks_pending(team):
     return [
         t for t in _by_team(team)
-        if t["deadline"] and t["status"] != "done"
+        if not t["done"] and t["deadline"]
     ]
 
 
-# ----------------------------------------------------
-# Update status (by TaskID)
-# ----------------------------------------------------
-def update_task_status(task_id, new_status="done"):
-    tasks = _load_tasks()
-    target = None
-
-    for t in tasks:
-        if t["task_id"] == task_id:
-            target = t
-            break
-
-    if not target:
-        return False
-
-    row = target["row_index"]
-    header = get_sheet("Tasks")[0]
-    status_col = header.index("Status") + 1  # 1-based
-
-    update_cell("Tasks", row, status_col, new_status)
-    return True
+def update_task_status(task_id, new_status):
+    rows = get_sheet(TASKS_SHEET)
+    for i, row in enumerate(rows[1:], start=2):
+        if clean(row[0]) == task_id:
+            # Status (J)
+            update_cell(TASKS_SHEET, i, 10, new_status)
+            # Done (S)
+            if new_status == "done":
+                update_cell(TASKS_SHEET, i, 19, "Yes")
+            return True
+    return False
