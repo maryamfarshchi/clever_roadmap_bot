@@ -120,32 +120,25 @@ def process_callback(cb):
     chat_id = cb["message"]["chat"]["id"]
     data = cb.get("data", "")
 
-    user = find_member(chat_id)
-    team = user["team"] if user else ""
-
     if data.startswith("DONE::"):
-        title = data.replace("DONE::", "")
-        ok = False
-        if team:
-            ok = update_task_status(title, team, "done")
-
+        task_id = data.replace("DONE::", "")
+        ok = update_task_status(task_id, "done")
         if ok:
-            return send_message(chat_id, f"🎉 عالی! «{title}» تحویل شد ✔️")
+            send_message(chat_id, "🎉 عالی! تسک تحویل شد ✔️")
         else:
-            return send_message(
-                chat_id,
-                f"⚠ نتونستم تسک «{title}» رو در شیت پیدا کنم، "
-                "ولی یادم می‌مونه که گفتی انجام شده.",
-            )
+            send_message(chat_id, "⚠️ این تسک پیدا نشد (TaskID mismatch).")
+        return
 
-    if data.startswith("NOT_DONE::"):
-        title = data.replace("NOT_DONE::", "")
-        return send_message(
-            chat_id,
-            f"🔔 اوکی! «{title}» هنوز انجام نشده. بعداً دوباره یادت می‌ندازم.",
-        )
+    if data.startswith("NOT_YET::"):
+        task_id = data.replace("NOT_YET::", "")
+        ok = update_task_status(task_id, "not yet")
+        if ok:
+            send_message(chat_id, "🔔 اوکی. هنوز انجام نشده ثبت شد.")
+        else:
+            send_message(chat_id, "⚠️ این تسک پیدا نشد (TaskID mismatch).")
+        return
 
-    return send_message(chat_id, "❗ داده‌ی دکمه نامعتبر است.")
+    return send_message(chat_id, "❗ داده نامعتبر.")
 
 
 # =================================================================
@@ -271,3 +264,4 @@ def send_pending(chat_id, user):
             ]
         ]
         send_buttons(chat_id, base_text, buttons)
+
