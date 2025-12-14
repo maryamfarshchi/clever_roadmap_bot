@@ -18,15 +18,9 @@ def normalize_team(s):
 
 
 def parse_date_any(v):
-    """
-    Google Sheet date can be:
-    - datetime
-    - string with RTL chars
-    """
     if not v:
         return None
 
-    # datetime object
     if isinstance(v, datetime):
         return v.date()
 
@@ -46,8 +40,7 @@ def _load_tasks():
         return []
 
     data = rows[1:]
-    today = datetime.utcnow().date()  # UTC
-    yesterday = today - timedelta(days=1)
+    today = datetime.utcnow().date()  # یا بعداً به Asia/Tehran تغییر بده
 
     tasks = []
 
@@ -57,8 +50,7 @@ def _load_tasks():
         date_en = row[2]
         date_fa = row[3]
         title = clean(row[6])
-        status = clean(row[9]).lower()
-        done = clean(row[18]).lower()
+        done = clean(row[18]).lower()  # ستون Done (S)
 
         if not task_id or not team or not title:
             continue
@@ -78,9 +70,6 @@ def _load_tasks():
             "deadline": deadline,
             "delay_days": delay,
             "done": done == "yes",
-            # برای دیباگ
-            "_today": today,
-            "_yesterday": yesterday,
         })
 
     return tasks
@@ -96,39 +85,32 @@ def _by_team(team):
 
 # ---------------- Public APIs ----------------
 def get_tasks_today(team):
-    tasks = []
     today = datetime.utcnow().date()
     yesterday = today - timedelta(days=1)
-
-    for t in _by_team(team):
-        if t["deadline"] in (today, yesterday):
-            tasks.append(t)
-
-    return tasks
+    return [t for t in _by_team(team) if t["deadline"] in (today, yesterday)]
 
 
 def get_tasks_week(team):
     today = datetime.utcnow().date()
     end = today + timedelta(days=7)
-    return [
-        t for t in _by_team(team)
-        if today <= t["deadline"] <= end
-    ]
+    return [t for t in _by_team(team) if today <= t["deadline"] <= end]
 
 
 def get_tasks_pending(team):
-    return [
-        t for t in _by_team(team)
-        if not t["done"]
-    ]
+    return [t for t in _by_team(team) if not t["done"]]
 
 
 def update_task_status(task_id, new_status):
+    """
+    new_status معمولاً "Yes" یا خالی/"No"
+    """
     rows = get_sheet(TASKS_SHEET)
     for i, row in enumerate(rows[1:], start=2):
         if clean(row[0]) == task_id:
+            # آپدیت ستون Status (J, index 10)
             update_cell(TASKS_SHEET, i, 10, new_status)
-            if new_status == "done":
-                update_cell(TASKS_SHEET, i, 19, "Yes")
+            # آپدیت ستون Done (S, index 19)
+            done_value = "Yes" if clean(new_status).lower() in ["yes", "done"] else ""
+            update_cell(TASKS_SHEET, i, 19, done_value)
             return True
     return False
