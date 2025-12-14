@@ -135,15 +135,19 @@ def send_week(chat_id, user):
 # =========================================================
 # تسک‌های انجام نشده (overdue)
 # =========================================================
+# =========================================================
+# تسک‌های انجام نشده
+# =========================================================
 def send_pending(chat_id, user):
     tasks = get_tasks_pending(user["team"])
 
     if not tasks:
-        return send_message(chat_id, "همه تسک‌ها انجام شدن!")
+        return send_message(chat_id, "🎉 همه تسک‌ها انجام شدن! عالیه")
 
     for t in tasks:
         delay = t["delay_days"]
 
+        # تعیین نوع پیام
         if delay > 5:
             msg_type = "ESC"
         elif delay > 0:
@@ -153,14 +157,15 @@ def send_pending(chat_id, user):
         elif delay == -2:
             msg_type = "PRE2"
         else:
-            continue  # بقیه منفی‌ها رو نمی‌فرستیم چون فیلتر کردیم
+            # تسک‌های آینده دورتر از ۲ روز رو نادیده بگیر (یا می‌تونی حذف کنی این continue)
+            continue
 
         text = (
-            f"*{t['title']}*n"
-            f"{t['date_fa']}n"
+            f"📌 *{t['title']}*\n"
+            f"📅 {t['date_fa']}\n\n"
             + get_random_message(
                 msg_type,
-                NAME=user.get("customname"),
+                NAME=user.get("customname") or user.get("name"),
                 TEAM=user["team"],
                 TITLE=t["title"],
                 DAYS=abs(delay),
@@ -168,14 +173,16 @@ def send_pending(chat_id, user):
             )
         )
 
+        # ارسال به ادمین فقط برای ESC
         if msg_type == "ESC":
-            send_message(ADMIN_CHAT_ID, f"ESCALATED\n{text}")
+            send_message(ADMIN_CHAT_ID, f"⚠️ ESCALATED\n{text}")
+
+        # دکمه فقط برای PRE2, DUE, OVR (نه ESC که خیلی عقب افتاده)
+        if msg_type in ["PRE2", "DUE", "OVR"]:
+            buttons = [[
+                {"text": "✔️ تحویل شد", "callback_data": f"DONE::{t['task_id']}"},
+                {"text": "❌ هنوز نه", "callback_data": f"NOT_YET::{t['task_id']}"},
+            ]]
+            send_buttons(chat_id, text, buttons)
+        else:
             send_message(chat_id, text)
-            continue
-
-        buttons = [[
-            {"text": "تحویل شد", "callback_data": f"DONE::{t['task_id']}"},
-            {"text": "هنوز نه", "callback_data": f"NOT_YET::{t['task_id']}"},
-        ]]
-
-        send_buttons(chat_id, text, buttons)
