@@ -171,16 +171,17 @@ def send_pending(chat_id, user):
             date_fa = t["date_fa"] if t["date_fa"] and t["date_fa"] != "نامشخص" else "نامشخص"
 
             # اگر تاریخ نامعتبر باشه (delay=None)
-            if delay is None:
-                text = f"📌 *{t['title']}*\n📅 {date_fa} (تاریخ نامعتبر ⚠️)"
-                send_message(chat_id, text)
-                continue
+            # در send_pending، بخش delay is None:
+       if delay is None:
+        text = f"📌 *{t['title']}*\n📅 {date_fa} (تاریخ نامعتبر – لطفاً اصلاح کنید ⚠️)"
+      send_message(chat_id, text)
+     continue
 
-            # متن وضعیت تاخیر
-            if delay > 0:
-                delay_text = f"({delay} روز تاخیر ❌)"
-            elif delay == 0:
-                delay_text = "(مهلت امروز ⏰)"
+          # و برای overdue:
+      if delay > 0:
+       delay_text = f"({delay} روز تاخیر ❌)"
+     elif delay == 0:
+       delay_text = "(مهلت امروز ⏰)"
             else:
                 delay_text = f"({abs(delay)} روز مانده ✅)"
 
@@ -200,3 +201,4 @@ def send_pending(chat_id, user):
 
     # برگرداندن کیبورد اصلی (نقطه نامرئی)
     send_message(chat_id, ".", main_keyboard())
+
