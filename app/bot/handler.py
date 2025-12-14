@@ -29,11 +29,9 @@ ADMIN_CHAT_ID = 341781615
 # =========================================================
 def process_update(update):
     try:
-        # ---------- CALLBACK ----------
         if "callback_query" in update:
             return process_callback(update["callback_query"])
 
-        # ---------- MESSAGE ----------
         if "message" not in update:
             return
 
@@ -100,13 +98,13 @@ def process_callback(cb):
     if data.startswith("DONE::"):
         task_id = data.replace("DONE::", "")
         if update_task_status(task_id, "Yes"):
-            return send_message(chat_id, "✔️ انجام شد")
+            return send_message(chat_id, "✔️ انجام شد و ثبت گردید.")
         return send_message(chat_id, "❌ TaskID پیدا نشد")
 
     if data.startswith("NOT_YET::"):
         task_id = data.replace("NOT_YET::", "")
         update_task_status(task_id, "")
-        return send_message(chat_id, "⏳ هنوز انجام نشده")
+        return send_message(chat_id, "⏳ هنوز انجام نشده – یادآوری ادامه دارد.")
 
     send_message(chat_id, "❗ callback نامعتبر")
 
@@ -149,64 +147,37 @@ def send_week(chat_id, user):
 
 
 # =========================================================
-# PENDING
+# PENDING – اصلاح‌شده کامل
 # =========================================================
 def send_pending(chat_id, user):
     tasks = get_tasks_pending(user["team"])
 
     if not tasks:
-        return send_message(chat_id, "🎉 همه تسک‌ها انجام شده")
+        return send_message(chat_id, "🎉 همه تسک‌ها انجام شده – عالیه! 👏")
+
+    send_message(chat_id, f"📋 شما {len(tasks)} تسک انجام‌نشده دارید:")
 
     for t in tasks:
         delay = t["delay_days"]
 
-        if delay is None:
-            continue
-
-        if delay > 5:
-            msg_type = "ESC"
-        elif delay > 0:
-            msg_type = "OVR"
+        if delay > 0:
+            delay_text = f"({delay} روز تاخیر ❌)"
         elif delay == 0:
-            msg_type = "DUE"
-        elif delay == -2:
-            msg_type = "PRE2"
+            delay_text = "(مهلت امروز ⏰)"
         else:
-            continue
+            delay_text = f"({abs(delay)} روز مانده ✅)"
 
-        text = (
-            f"📌 *{t['title']}*\n"
-            f"📅 {t['date_fa']}\n\n" +
-            get_random_message(
-                msg_type,
-                NAME=user.get("customname"),
-                TEAM=user["team"],
-                TITLE=t["title"],
-                DAYS=abs(delay),
-                DATE_FA=t["date_fa"],
-            )
-        )
+        text = f"📌 *{t['title']}*\n📅 {t['date_fa']} {delay_text}"
 
-        if msg_type == "ESC":
-            send_message(ADMIN_CHAT_ID, f"⚠ ESC\n{text}")
-            send_message(chat_id, text)
-            continue
-
-        if msg_type == "PRE2":
-            send_message(chat_id, text)
-            continue
-
-        buttons = [
-            [
-                {
-                    "text": "✔️ تحویل شد",
-                    "callback_data": f"DONE::{t['task_id']}",
-                },
-                {
-                    "text": "❌ هنوز نه",
-                    "callback_data": f"NOT_YET::{t['task_id']}",
-                },
+        # فقط برای تسک‌های نزدیک (از ۲ روز قبل تا overdue) دکمه بگذار
+        if -2 <= delay:
+            buttons = [
+                [
+                    {"text": "✔️ تحویل شد", "callback_data": f"DONE::{t['task_id']}"},
+                    {"text": "❌ هنوز نه", "callback_data": f"NOT_YET::{t['task_id']}"},
+                ]
             ]
-        ]
-
-        send_buttons(chat_id, text, buttons)
+            send_buttons(chat_id, text, buttons)
+        else:
+            # تسک‌های آینده دور: فقط نمایش
+            send_message(chat_id, text)
