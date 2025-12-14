@@ -142,10 +142,20 @@ def send_pending(chat_id, user):
     tasks = get_tasks_pending(user["team"])
 
     if not tasks:
-        return send_message(chat_id, "🎉 همه تسک‌ها انجام شدن! عالیه")
+        return send_message(chat_id, "🎉 همه تسک‌ها انجام شده")
+
+    # اول عقب‌افتاده‌ها بیان
+    tasks.sort(key=lambda t: -t["delay_days"])
 
     for t in tasks:
         delay = t["delay_days"]
+
+        if delay is None:
+            continue
+
+        # فقط تسک‌های دورتر از ۲ روز آینده رو رد کن
+        if delay < -2:
+            continue
 
         # تعیین نوع پیام
         if delay > 5:
@@ -154,11 +164,8 @@ def send_pending(chat_id, user):
             msg_type = "OVR"
         elif delay == 0:
             msg_type = "DUE"
-        elif delay == -2:
-            msg_type = "PRE2"
-        else:
-            # تسک‌های آینده دورتر از ۲ روز رو نادیده بگیر (یا می‌تونی حذف کنی این continue)
-            continue
+        else:  # delay = -1 یا -2
+            msg_type = "PRE2" if delay == -2 else "DUE"  # -1 رو هم مثل DUE حساب کن (اختیاری)
 
         text = (
             f"📌 *{t['title']}*\n"
@@ -173,16 +180,20 @@ def send_pending(chat_id, user):
             )
         )
 
-        # ارسال به ادمین فقط برای ESC
         if msg_type == "ESC":
-            send_message(ADMIN_CHAT_ID, f"⚠️ ESCALATED\n{text}")
+            send_message(ADMIN_CHAT_ID, f"⚠ ESC\n{text}")
+            send_message(chat_id, text)
+            continue
 
-        # دکمه فقط برای PRE2, DUE, OVR (نه ESC که خیلی عقب افتاده)
-        if msg_type in ["PRE2", "DUE", "OVR"]:
-            buttons = [[
+        if msg_type == "PRE2":
+            send_message(chat_id, text)
+            continue
+
+        # DUE و OVR با دکمه
+        buttons = [
+            [
                 {"text": "✔️ تحویل شد", "callback_data": f"DONE::{t['task_id']}"},
                 {"text": "❌ هنوز نه", "callback_data": f"NOT_YET::{t['task_id']}"},
-            ]]
-            send_buttons(chat_id, text, buttons)
-        else:
-            send_message(chat_id, text)
+            ]
+        ]
+        send_buttons(chat_id, text, buttons)
