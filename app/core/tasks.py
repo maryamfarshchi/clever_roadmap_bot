@@ -8,16 +8,11 @@ from core.sheets import get_sheet, update_cell
 
 TASKS_SHEET = "Tasks"
 
-# تایم‌زون ایران — از این به بعد همه جا از این استفاده می‌کنیم
+# تایم‌زون ایران
 IR_TZ = timezone('Asia/Tehran')
 
-def now_iran():
-    """همیشه تاریخ و ساعت فعلی ایران رو برمی‌گردونه"""
-    return datetime.now(IR_TZ)
-
 def today_iran():
-    """فقط تاریخ (date) امروز ایران"""
-    return now_iran().date()
+    return datetime.now(IR_TZ).date()
 
 
 # ---------------- Helpers ----------------
@@ -39,7 +34,6 @@ def parse_date_any(v):
     s = clean(v)
     s = re.sub(r"[\u200e\u200f\u202a-\u202e]", "", s)
 
-    # فرمت‌های رایج در گوگل شیت
     for fmt in ("%m/%d/%Y", "%Y/%m/%d", "%d/%m/%Y"):
         try:
             return datetime.strptime(s, fmt).date()
@@ -55,17 +49,24 @@ def _load_tasks():
         return []
 
     data = rows[1:]
-    today = today_iran()  # ← اینجا ایران
+    today = today_iran()
 
     tasks = []
 
     for i, row in enumerate(data, start=2):
+        if len(row) < 1:
+            continue
+
         task_id = clean(row[0])
         team = normalize_team(row[1])
-        date_en = row[2]
-        date_fa = clean(row[3])
-        title = clean(row[6])
-        done_col = clean(row[18]).lower() if len(row) > 18 else ""  # ستون S
+        date_en = row[2] if len(row) > 2 else None
+        date_fa = clean(row[3]) if len(row) > 3 else ""
+        title = clean(row[6]) if len(row) > 6 else ""
+
+        # ستون Status (J) → index 9
+        status_col = clean(row[9]).lower() if len(row) > 9 else ""
+        # ستون Done (S) → index 18
+        done_col = clean(row[18]).lower() if len(row) > 18 else ""
 
         if not task_id or not team or not title:
             continue
@@ -76,6 +77,9 @@ def _load_tasks():
 
         delay = (today - deadline).days
 
+        # انجام شده اگر حداقل یکی از Status یا Done برابر Yes باشه
+        is_done = (status_col == "yes") or (done_col == "yes")
+
         tasks.append({
             "row_index": i,
             "task_id": task_id,
@@ -84,7 +88,7 @@ def _load_tasks():
             "date_fa": date_fa,
             "deadline": deadline,
             "delay_days": delay,
-            "done": done_col == "yes",
+            "done": is_done,
         })
 
     return tasks
@@ -100,7 +104,6 @@ def _by_team(team):
 def get_tasks_today(team):
     today = today_iran()
     yesterday = today - timedelta(days=1)
-
     return [t for t in _by_team(team) if t["deadline"] in (today, yesterday)]
 
 
@@ -110,19 +113,14 @@ def get_tasks_week(team):
     return [t for t in _by_team(team) if today <= t["deadline"] <= end]
 
 
+# ★ همه تسک‌های انجام نشده (بدون محدودیت تاریخ)
 def get_tasks_pending(team):
-    """فقطسک‌های انجام نشده که ددلاینشون گذشته یا امروز هست (یا فقط گذشته — انتخاب کن)"""
-    today = today_iran()
-    return [
-        t for t in _by_team(team)
-        if not t["done"] and t["deadline"] < today   # فقط overdue
-        # اگر می‌خوای تسک‌های امروز هم بیاد: t["deadline"] <= today
-    ]
+    return [t for t in _by_team(team) if not t["done"]]
 
 
 def update_task_status(task_id, new_status):
     """
-    new_status → "Yes" یا ""
+    new_status: "Yes" یا ""
     """
     rows = get_sheet(TASKS_SHEET)
     if not rows or len(rows) < 2:
@@ -130,12 +128,13 @@ def update_task_status(task_id, new_status):
 
     for i, row in enumerate(rows[1:], start=2):
         if clean(row[0]) == task_id:
-            # ستون J (Status) → شماره 10
+            # آپدیت Status (ستون J → 10)
             update_cell(TASKS_SHEET, i, 10, new_status)
-            # ستون S (Done) → شماره 19
+            # آپدیت Done (ستون S → 19)
             done_value = "Yes" if new_status == "Yes" else "No"
             update_cell(TASKS_SHEET, i, 19, done_value)
 
-            print(f"[TASK UPDATED] {task_id} → Status: {new_status}, Done: {done_value}")
+            print(f"[TASK UPDATED] {task_id} → Status: {new_status} | Done: {done_value}")
             return True
+    print(f"[TASK UPDATE FAILED] TaskID {task_id} not found")
     return False
