@@ -22,6 +22,7 @@ def normalize_team(s):
 def parse_date_any(v):
     if not v:
         return None
+
     if isinstance(v, datetime):
         return v.date()
 
@@ -31,15 +32,22 @@ def parse_date_any(v):
     formats = [
         "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d",
         "%Y-%m-%d", "%d-%m-%Y", "%m-%d-%Y",
+        "%Y-%m-%dT%H:%M:%S.%fZ",  # جدید: ISO با میلی‌ثانیه
+        "%Y-%m-%dT%H:%M:%SZ",     # جدید: ISO بدون میلی‌ثانیه
+        "%Y-%m-%dT%H:%M:%S",      # بدون Z
     ]
 
     for fmt in formats:
         try:
-            return datetime.strptime(s, fmt).date()
+            dt = datetime.strptime(s, fmt)
+            if 'Z' in s or 'T' in s:
+                # اگر Z داشت، فرض کن UTC و به تاریخ تبدیل کن
+                return dt.date() if fmt.endswith('Z') else dt.date()
+            return dt.date()
         except ValueError:
             continue
 
-    print(f"[WARNING] Failed to parse date: '{v}' -> '{s}'")
+    print(f"[WARNING] Failed to parse date: '{v}' -> cleaned: '{s}'")
     return None
 
 
@@ -107,7 +115,18 @@ def get_tasks_week(team):
 
 
 def get_tasks_pending(team):
-    return [t for t in _by_team(team) if not t["done"]]
+    """فقط تسک‌های انجام‌نشده که مهلت‌شون گذشته یا امروز باشه"""
+    today = get_today_iran()
+    pending = []
+    for t in _by_team(team):
+        if t["done"]:
+            continue
+        if t["deadline"] is None:
+            # اگر تاریخ نامعتبر باشه، فعلاً نشون بده با هشدار (یا skip کن)
+            pending.append(t)
+        elif t["deadline"] <= today:  # گذشته یا امروز
+            pending.append(t)
+    return pending
 
 
 def update_task_status(task_id, new_status):
@@ -125,3 +144,4 @@ def update_task_status(task_id, new_status):
             update_cell(TASKS_SHEET, i, 19, done_value)
             return True
     return False
+
