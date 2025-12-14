@@ -1,140 +1,203 @@
-# app/core/tasks.py
+# app/bot/handler.py
 # -*- coding: utf-8 -*-
 
-from datetime import datetime, timedelta
-import re
-from pytz import timezone
-from core.sheets import get_sheet, update_cell
+from bot.keyboards import main_keyboard
+from bot.helpers import send_message, send_buttons
+from core.members import find_member, add_member_if_not_exists, mark_welcomed
+from core.tasks import get_tasks_today, get_tasks_week, get_tasks_pending, update_task_status
+from core.messages import get_random_message
+from core.state import clear_user_state
 
-TASKS_SHEET = "Tasks"
-
-# تایم‌زون ایران
-IR_TZ = timezone('Asia/Tehran')
-
-def today_iran():
-    return datetime.now(IR_TZ).date()
+ADMIN_CHAT_ID = 341781615  # اگر تغییر کرد، اینجا عوض کن
 
 
-# ---------------- Helpers ----------------
-def clean(s):
-    return str(s or "").strip()
+def process_update(update):
+    try:
+        # ---------- CALLBACK ----------
+        if "callback_query" in update:
+            return process_callback(update["callback_query"])
+
+        # ---------- MESSAGE ----------
+        if "message" not in update:
+            return
+
+        msg = update["message"]
+        chat = msg.get("chat", {})
+        chat_id = chat.get("id")
+        text = msg.get("text", "").strip()
+
+        if not chat_id:
+            return
+
+        user = find_member(chat_id)
+
+        if not user:
+            add_member_if_not_exists(
+                chat_id=chat_id,
+                name=chat.get("first_name", ""),
+                username=chat.get("username", ""),
+            )
+            return send_message(
+                chat_id,
+                "👋 شما ثبت نشده‌اید.\nبا مدیر سیستم تماس بگیرید.",
+            )
+
+        if user.get("welcomed") != "Yes":
+            mark_welcomed(chat_id)
+            return send_message(
+                chat_id,
+                f"سلام {user.get('customname') or user.get('name')} 👋",
+                main_keyboard(),
+            )
+
+        if text == "/start":
+            clear_user_state(chat_id)
+            return send_message(
+                chat_id,
+                "از منوی زیر انتخاب کن 👇",
+                main_keyboard(),
+            )
+
+        if text == "لیست کارهای امروز":
+            return send_today(chat_id, user)
+
+        if text == "لیست کارهای هفته":
+            return send_week(chat_id, user)
+
+        if text == "تسک های انجام نشده":
+            return send_pending(chat_id, user)
+
+        return send_message(chat_id, "❗ فقط از دکمه‌ها استفاده کن.")
+
+    except Exception as e:
+        send_message(ADMIN_CHAT_ID, f"⚠ ERROR:\n{e}")
+        print("HANDLER ERROR:", e)
 
 
-def normalize_team(s):
-    return clean(s).lower()
+# =========================================================
+# CALLBACK
+# =========================================================
+def process_callback(cb):
+    chat_id = cb["message"]["chat"]["id"]
+    data = cb.get("data", "")
+
+    if data.startswith("DONE::"):
+        task_id = data.replace("DONE::", "")
+        if update_task_status(task_id, "Yes"):
+            return send_message(chat_id, "✔️ انجام شد")
+        return send_message(chat_id, "❌ TaskID پیدا نشد")
+
+    if data.startswith("NOT_YET::"):
+        task_id = data.replace("NOT_YET::", "")
+        update_task_status(task_id, "")
+        return send_message(chat_id, "⏳ هنوز انجام نشده")
+
+    send_message(chat_id, "❗ callback نامعتبر")
 
 
-def parse_date_any(v):
-    if not v:
-        return None
+# =========================================================
+# TODAY
+# =========================================================
+def send_today(chat_id, user):
+    tasks = get_tasks_today(user["team"])
 
-    if isinstance(v, datetime):
-        return v.date()
+    if not tasks:
+        return send_message(chat_id, "🌤️ امروز کاری ثبت نشده")
 
-    s = clean(v)
-    s = re.sub(r"[\u200e\u200f\u202a-\u202e]", "", s)
+    for t in tasks:
+        send_message(
+            chat_id,
+            f"📌 *{t['title']}*\n📅 {t['date_fa']}",
+        )
 
-    for fmt in ("%m/%d/%Y", "%Y/%m/%d", "%d/%m/%Y"):
-        try:
-            return datetime.strptime(s, fmt).date()
-        except:
+
+# =========================================================
+# WEEK
+# =========================================================
+def send_week(chat_id, user):
+    tasks = get_tasks_week(user["team"])
+
+    if not tasks:
+        return send_message(chat_id, "📆 کاری برای این هفته نیست")
+
+    send_message(
+        chat_id,
+        get_random_message("WEEK", TEAM=user["team"]),
+    )
+
+    for t in tasks:
+        send_message(
+            chat_id,
+            f"📅 {t['date_fa']}\n✏️ {t['title']}",
+        )
+
+
+# =========================================================
+# PENDING — دقیقاً مثل نسخه قدیمی و درست
+# =========================================================
+def send_pending(chat_id, user):
+    tasks = get_tasks_pending(user["team"])
+
+    if not tasks:
+        return send_message(chat_id, "🎉 همه تسک‌ها انجام شده")
+
+    # مرتب‌سازی: اول تسک‌های عقب‌افتاده (delay بیشتر اول)
+    tasks.sort(key=lambda t: -t["delay_days"])
+
+    for t in tasks:
+        delay = t["delay_days"]
+
+        if delay is None:
             continue
-    return None
 
-
-# ---------------- Load tasks ----------------
-def _load_tasks():
-    rows = get_sheet(TASKS_SHEET)
-    if not rows or len(rows) < 2:
-        return []
-
-    data = rows[1:]
-    today = today_iran()
-
-    tasks = []
-
-    for i, row in enumerate(data, start=2):
-        if len(row) < 1:
+        if delay > 5:
+            msg_type = "ESC"
+        elif delay > 0:
+            msg_type = "OVR"
+        elif delay == 0:
+            msg_type = "DUE"
+        elif delay == -2:
+            msg_type = "PRE2"
+        else:
+            # تسک‌های دورتر از ۲ روز آینده رو نادیده بگیر (مثل قبل)
             continue
 
-        task_id = clean(row[0])
-        team = normalize_team(row[1])
-        date_en = row[2] if len(row) > 2 else None
-        date_fa = clean(row[3]) if len(row) > 3 else ""
-        title = clean(row[6]) if len(row) > 6 else ""
+        text = (
+            f"📌 *{t['title']}*\n"
+            f"📅 {t['date_fa']}\n\n"
+            + get_random_message(
+                msg_type,
+                NAME=user.get("customname") or user.get("name"),
+                TEAM=user["team"],
+                TITLE=t["title"],
+                DAYS=abs(delay),
+                DATE_FA=t["date_fa"],
+            )
+        )
 
-        # ستون Status (J) → index 9
-        status_col = clean(row[9]).lower() if len(row) > 9 else ""
-        # ستون Done (S) → index 18
-        done_col = clean(row[18]).lower() if len(row) > 18 else ""
-
-        if not task_id or not team or not title:
+        # ESC: به ادمین و کاربر
+        if msg_type == "ESC":
+            send_message(ADMIN_CHAT_ID, f"⚠ ESC\n{text}")
+            send_message(chat_id, text)
             continue
 
-        deadline = parse_date_any(date_en)
-        if not deadline:
+        # PRE2: فقط پیام
+        if msg_type == "PRE2":
+            send_message(chat_id, text)
             continue
 
-        delay = (today - deadline).days
+        # DUE و OVR: با دکمه
+        buttons = [
+            [
+                {
+                    "text": "✔️ تحویل شد",
+                    "callback_data": f"DONE::{t['task_id']}",
+                },
+                {
+                    "text": "❌ هنوز نه",
+                    "callback_data": f"NOT_YET::{t['task_id']}",
+                },
+            ]
+        ]
 
-        # انجام شده اگر حداقل یکی از Status یا Done برابر Yes باشه
-        is_done = (status_col == "yes") or (done_col == "yes")
-
-        tasks.append({
-            "row_index": i,
-            "task_id": task_id,
-            "team": team,
-            "title": title,
-            "date_fa": date_fa,
-            "deadline": deadline,
-            "delay_days": delay,
-            "done": is_done,
-        })
-
-    return tasks
-
-
-def _by_team(team):
-    team = normalize_team(team)
-    tasks = _load_tasks()
-    return tasks if team == "all" else [t for t in tasks if t["team"] == team]
-
-
-# ---------------- Public APIs ----------------
-def get_tasks_today(team):
-    today = today_iran()
-    yesterday = today - timedelta(days=1)
-    return [t for t in _by_team(team) if t["deadline"] in (today, yesterday)]
-
-
-def get_tasks_week(team):
-    today = today_iran()
-    end = today + timedelta(days=7)
-    return [t for t in _by_team(team) if today <= t["deadline"] <= end]
-
-
-# ★ همه تسک‌های انجام نشده (بدون محدودیت تاریخ)
-def get_tasks_pending(team):
-    return [t for t in _by_team(team) if not t["done"]]
-
-
-def update_task_status(task_id, new_status):
-    """
-    new_status: "Yes" یا ""
-    """
-    rows = get_sheet(TASKS_SHEET)
-    if not rows or len(rows) < 2:
-        return False
-
-    for i, row in enumerate(rows[1:], start=2):
-        if clean(row[0]) == task_id:
-            # آپدیت Status (ستون J → 10)
-            update_cell(TASKS_SHEET, i, 10, new_status)
-            # آپدیت Done (ستون S → 19)
-            done_value = "Yes" if new_status == "Yes" else "No"
-            update_cell(TASKS_SHEET, i, 19, done_value)
-
-            print(f"[TASK UPDATED] {task_id} → Status: {new_status} | Done: {done_value}")
-            return True
-    print(f"[TASK UPDATE FAILED] TaskID {task_id} not found")
-    return False
+        send_buttons(chat_id, text, buttons)
