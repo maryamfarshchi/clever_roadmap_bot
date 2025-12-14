@@ -128,7 +128,6 @@ def send_today(chat_id, user):
                 f"📌 *{t['title']}*\n📅 {t['date_fa']}",
             )
 
-    # برگرداندن کیبورد اصلی
     send_message(chat_id, ".", main_keyboard())
 
 
@@ -151,12 +150,11 @@ def send_week(chat_id, user):
                 f"📅 {t['date_fa']}\n✏️ {t['title']}",
             )
 
-    # برگرداندن کیبورد اصلی
     send_message(chat_id, ".", main_keyboard())
 
 
 # =========================================================
-# PENDING – نسخه نهایی و بدون ارور
+# PENDING – نهایی و بدون ارور
 # =========================================================
 def send_pending(chat_id, user):
     tasks = get_tasks_pending(user["team"])
@@ -170,24 +168,20 @@ def send_pending(chat_id, user):
             delay = t["delay_days"]
             date_fa = t["date_fa"] if t["date_fa"] and t["date_fa"] != "نامشخص" else "نامشخص"
 
-            # اگر تاریخ نامعتبر باشه (delay=None)
-            # در send_pending، بخش delay is None:
-       if delay is None:
-        text = f"📌 *{t['title']}*\n📅 {date_fa} (تاریخ نامعتبر – لطفاً اصلاح کنید ⚠️)"
-      send_message(chat_id, text)
-     continue
+            if delay is None:
+                text = f"📌 *{t['title']}*\n📅 {date_fa} (تاریخ نامعتبر ⚠️)"
+                send_message(chat_id, text)
+                continue
 
-          # و برای overdue:
-      if delay > 0:
-       delay_text = f"({delay} روز تاخیر ❌)"
-     elif delay == 0:
-       delay_text = "(مهلت امروز ⏰)"
+            if delay > 0:
+                delay_text = f"({delay} روز تاخیر ❌)"
+            elif delay == 0:
+                delay_text = "(مهلت امروز ⏰)"
             else:
                 delay_text = f"({abs(delay)} روز مانده ✅)"
 
             text = f"📌 *{t['title']}*\n📅 {date_fa} {delay_text}"
 
-            # دکمه فقط برای تسک‌های نزدیک (از ۲ روز قبل تا کمی تاخیر)
             if delay >= -2:
                 buttons = [
                     [
@@ -199,6 +193,4 @@ def send_pending(chat_id, user):
             else:
                 send_message(chat_id, text)
 
-    # برگرداندن کیبورد اصلی (نقطه نامرئی)
     send_message(chat_id, ".", main_keyboard())
-
