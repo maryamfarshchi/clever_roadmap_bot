@@ -3,17 +3,14 @@
 
 from datetime import datetime, timedelta
 import re
-import pytz  # حتماً pytz نصب باشه
+import pytz
 
 from core.sheets import get_sheet, update_cell
 
 TASKS_SHEET = "Tasks"
-
-# تنظیم timezone ایران
 IRAN_TZ = pytz.timezone('Asia/Tehran')
 
 
-# ---------------- Helpers ----------------
 def clean(s):
     return str(s or "").strip()
 
@@ -25,7 +22,6 @@ def normalize_team(s):
 def parse_date_any(v):
     if not v:
         return None
-
     if isinstance(v, datetime):
         return v.date()
 
@@ -43,7 +39,7 @@ def parse_date_any(v):
         except ValueError:
             continue
 
-    print(f"[WARNING] Failed to parse date: '{v}' -> cleaned: '{s}'")
+    print(f"[WARNING] Failed to parse date: '{v}' -> '{s}'")
     return None
 
 
@@ -51,11 +47,9 @@ def get_today_iran():
     return datetime.now(IRAN_TZ).date()
 
 
-# ---------------- Load tasks ----------------
 def _load_tasks():
     rows = get_sheet(TASKS_SHEET)
     if not rows or len(rows) < 2:
-        print("[INFO] Tasks sheet empty or no data.")
         return []
 
     data = rows[1:]
@@ -70,7 +64,7 @@ def _load_tasks():
         title = clean(row[6] if len(row) > 6 else "")
 
         done_raw = clean(row[18] if len(row) > 18 else "").lower()
-        done = done_raw == "yes" or done_raw == "y"
+        done = done_raw in ["yes", "y"]
 
         if not task_id or not team or not title:
             continue
@@ -89,7 +83,6 @@ def _load_tasks():
             "done": done,
         })
 
-    print(f"[INFO] Loaded {len(tasks)} tasks.")
     return tasks
 
 
@@ -101,24 +94,16 @@ def _by_team(team):
     return [t for t in tasks if t["team"] == team_norm]
 
 
-# ---------------- Public APIs ----------------
 def get_tasks_today(team):
     today = get_today_iran()
     yesterday = today - timedelta(days=1)
-    # چک کنیم deadline None نباشه
-    return [
-        t for t in _by_team(team)
-        if t["deadline"] and t["deadline"] in (today, yesterday)
-    ]
+    return [t for t in _by_team(team) if t["deadline"] and t["deadline"] in (today, yesterday)]
 
 
 def get_tasks_week(team):
     today = get_today_iran()
     end = today + timedelta(days=7)
-    return [
-        t for t in _by_team(team)
-        if t["deadline"] and today <= t["deadline"] <= end
-    ]
+    return [t for t in _by_team(team) if t["deadline"] and today <= t["deadline"] <= end]
 
 
 def get_tasks_pending(team):
@@ -134,13 +119,9 @@ def update_task_status(task_id, new_status):
     new_status_clean = clean(new_status)
 
     for i, row in enumerate(rows[1:], start=2):
-        current_id = clean(row[0] if len(row) > 0 else "")
-        if current_id == task_id:
+        if clean(row[0] if len(row) > 0 else "") == task_id:
             update_cell(TASKS_SHEET, i, 10, new_status_clean)
             done_value = "Yes" if new_status_clean.lower() in ["yes", "done", "y"] else ""
             update_cell(TASKS_SHEET, i, 19, done_value)
-            print(f"[INFO] Task {task_id} updated. Done = '{done_value}'")
             return True
-
-    print(f"[WARNING] Task {task_id} not found.")
     return False
