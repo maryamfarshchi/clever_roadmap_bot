@@ -10,7 +10,6 @@ from core.state import clear_user_state
 
 ADMIN_CHAT_ID = 341781615
 
-
 def process_update(update):
     try:
         if "callback_query" in update:
@@ -60,7 +59,6 @@ def process_update(update):
         send_message(ADMIN_CHAT_ID, f"⚠ ERROR:\n{e}")
         print("HANDLER ERROR:", e)
 
-
 def process_callback(cb):
     chat_id = cb["message"]["chat"]["id"]
     data = cb.get("data", "")
@@ -70,7 +68,7 @@ def process_callback(cb):
         if update_task_status(task_id, "Yes"):
             send_message(chat_id, "✔️ تسک انجام شد")
         else:
-            send_message(chat_id, "❌ خطا در آپدیت تسک")
+            send_message(chat_id, "❌ خطا در آپدیت")
         return
 
     if data.startswith("NOT_YET::"):
@@ -79,9 +77,6 @@ def process_callback(cb):
         send_message(chat_id, "⏳ هنوز انجام نشده")
         return
 
-    send_message(chat_id, "دکمه نامعتبر")
-
-
 def send_today(chat_id, user):
     tasks = get_tasks_today(user["team"])
     if not tasks:
@@ -89,7 +84,6 @@ def send_today(chat_id, user):
 
     for t in tasks:
         send_message(chat_id, f"📌 *{t['title']}*\n📅 {t['date_fa']}")
-
 
 def send_week(chat_id, user):
     tasks = get_tasks_week(user["team"])
@@ -101,15 +95,11 @@ def send_week(chat_id, user):
     for t in tasks:
         send_message(chat_id, f"📅 {t['date_fa']}\n✏️ {t['title']}")
 
-
 def send_pending(chat_id, user):
     tasks = get_tasks_pending(user["team"])
 
     if not tasks:
-        return send_message(chat_id, "🎉 همه تسک‌ها انجام شدن! عالیه")
-
-    # اول عقب‌افتاده‌ها
-    tasks.sort(key=lambda t: -t["delay_days"])
+        return send_message(chat_id, "🎉 همه تسک‌ها انجام شده")
 
     for t in tasks:
         delay = t["delay_days"]
@@ -117,30 +107,32 @@ def send_pending(chat_id, user):
         if delay is None:
             continue
 
-        # فقط تسک‌های دورتر از ۲ روز آینده رو حذف کن
-        if delay < -2:
-            continue
-
-        # نوع پیام
         if delay > 5:
             msg_type = "ESC"
         elif delay > 0:
             msg_type = "OVR"
-        elif delay <= 0 and delay >= -2:
-            msg_type = "DUE" if delay <= 0 else "PRE2"
-            msg_type = "PRE2" if delay == -2 else "DUE"
+        elif delay == 0:
+            msg_type = "DUE"
+        elif delay == -2:
+            msg_type = "PRE2"
+        else:
+            continue  # آینده دور یا خیلی گذشته منفی
 
-        text = f"📌 *{t['title']}*\n📅 {t['date_fa']}\n\n" + get_random_message(
-            msg_type,
-            NAME=user.get("customname") or user.get("name"),
-            TEAM=user["team"],
-            TITLE=t['title'],
-            DAYS=abs(delay),
-            DATE_FA=t['date_fa'],
+        text = (
+            f"📌 *{t['title']}*\n"
+            f"📅 {t['date_fa']}\n\n"
+            + get_random_message(
+                msg_type,
+                NAME=user.get("customname") or user.get("name"),
+                TEAM=user["team"],
+                TITLE=t["title"],
+                DAYS=abs(delay),
+                DATE_FA=t["date_fa"],
+            )
         )
 
         if msg_type == "ESC":
-            send_message(ADMIN_CHAT_ID, f"⚠ ESCALATED\n{text}")
+            send_message(ADMIN_CHAT_ID, f"⚠ ESC\n{text}")
             send_message(chat_id, text)
             continue
 
@@ -154,4 +146,5 @@ def send_pending(chat_id, user):
                 {"text": "❌ هنوز نه", "callback_data": f"NOT_YET::{t['task_id']}"},
             ]
         ]
+
         send_buttons(chat_id, text, buttons)
