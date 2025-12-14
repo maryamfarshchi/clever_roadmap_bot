@@ -20,7 +20,6 @@ from core.tasks import (
 from core.messages import get_random_message
 from core.state import clear_user_state
 
-
 ADMIN_CHAT_ID = 341781615
 
 
@@ -29,9 +28,11 @@ ADMIN_CHAT_ID = 341781615
 # =========================================================
 def process_update(update):
     try:
+        # ---------- CALLBACK ----------
         if "callback_query" in update:
             return process_callback(update["callback_query"])
 
+        # ---------- MESSAGE ----------
         if "message" not in update:
             return
 
@@ -98,13 +99,16 @@ def process_callback(cb):
     if data.startswith("DONE::"):
         task_id = data.replace("DONE::", "")
         if update_task_status(task_id, "Yes"):
-            return send_message(chat_id, "✔️ انجام شد و ثبت گردید.")
-        return send_message(chat_id, "❌ TaskID پیدا نشد")
+            send_message(chat_id, "✔️ انجام شد و ثبت گردید.")
+        else:
+            send_message(chat_id, "❌ TaskID پیدا نشد")
+        return
 
     if data.startswith("NOT_YET::"):
         task_id = data.replace("NOT_YET::", "")
         update_task_status(task_id, "")
-        return send_message(chat_id, "⏳ هنوز انجام نشده – یادآوری ادامه دارد.")
+        send_message(chat_id, "⏳ هنوز انجام نشده – یادآوری ادامه دارد.")
+        return
 
     send_message(chat_id, "❗ callback نامعتبر")
 
@@ -116,13 +120,16 @@ def send_today(chat_id, user):
     tasks = get_tasks_today(user["team"])
 
     if not tasks:
-        return send_message(chat_id, "🌤️ امروز کاری ثبت نشده")
+        send_message(chat_id, "🌤️ امروز کاری ثبت نشده")
+    else:
+        for t in tasks:
+            send_message(
+                chat_id,
+                f"📌 *{t['title']}*\n📅 {t['date_fa']}",
+            )
 
-    for t in tasks:
-        send_message(
-            chat_id,
-            f"📌 *{t['title']}*\n📅 {t['date_fa']}",
-        )
+    # برگرداندن کیبورد اصلی
+    send_message(chat_id, ".", main_keyboard())
 
 
 # =========================================================
@@ -132,52 +139,64 @@ def send_week(chat_id, user):
     tasks = get_tasks_week(user["team"])
 
     if not tasks:
-        return send_message(chat_id, "📆 کاری برای این هفته نیست")
-
-    send_message(
-        chat_id,
-        get_random_message("WEEK", TEAM=user["team"]),
-    )
-
-    for t in tasks:
+        send_message(chat_id, "📆 کاری برای این هفته نیست")
+    else:
         send_message(
             chat_id,
-            f"📅 {t['date_fa']}\n✏️ {t['title']}",
+            get_random_message("WEEK", TEAM=user["team"]),
         )
+        for t in tasks:
+            send_message(
+                chat_id,
+                f"📅 {t['date_fa']}\n✏️ {t['title']}",
+            )
+
+    # برگرداندن کیبورد اصلی
+    send_message(chat_id, ".", main_keyboard())
 
 
 # =========================================================
-# PENDING – اصلاح‌شده کامل
+# PENDING – نسخه نهایی و بدون ارور
 # =========================================================
 def send_pending(chat_id, user):
     tasks = get_tasks_pending(user["team"])
 
     if not tasks:
-        return send_message(chat_id, "🎉 همه تسک‌ها انجام شده – عالیه! 👏")
+        send_message(chat_id, "🎉 همه تسک‌ها انجام شده – عالیه! 👏")
+    else:
+        send_message(chat_id, f"📋 شما {len(tasks)} تسک انجام‌نشده دارید:")
 
-    send_message(chat_id, f"📋 شما {len(tasks)} تسک انجام‌نشده دارید:")
+        for t in tasks:
+            delay = t["delay_days"]
+            date_fa = t["date_fa"] if t["date_fa"] and t["date_fa"] != "نامشخص" else "نامشخص"
 
-    for t in tasks:
-        delay = t["delay_days"]
+            # اگر تاریخ نامعتبر باشه (delay=None)
+            if delay is None:
+                text = f"📌 *{t['title']}*\n📅 {date_fa} (تاریخ نامعتبر ⚠️)"
+                send_message(chat_id, text)
+                continue
 
-        if delay > 0:
-            delay_text = f"({delay} روز تاخیر ❌)"
-        elif delay == 0:
-            delay_text = "(مهلت امروز ⏰)"
-        else:
-            delay_text = f"({abs(delay)} روز مانده ✅)"
+            # متن وضعیت تاخیر
+            if delay > 0:
+                delay_text = f"({delay} روز تاخیر ❌)"
+            elif delay == 0:
+                delay_text = "(مهلت امروز ⏰)"
+            else:
+                delay_text = f"({abs(delay)} روز مانده ✅)"
 
-        text = f"📌 *{t['title']}*\n📅 {t['date_fa']} {delay_text}"
+            text = f"📌 *{t['title']}*\n📅 {date_fa} {delay_text}"
 
-        # فقط برای تسک‌های نزدیک (از ۲ روز قبل تا overdue) دکمه بگذار
-        if -2 <= delay:
-            buttons = [
-                [
-                    {"text": "✔️ تحویل شد", "callback_data": f"DONE::{t['task_id']}"},
-                    {"text": "❌ هنوز نه", "callback_data": f"NOT_YET::{t['task_id']}"},
+            # دکمه فقط برای تسک‌های نزدیک (از ۲ روز قبل تا کمی تاخیر)
+            if delay >= -2:
+                buttons = [
+                    [
+                        {"text": "✔️ تحویل شد", "callback_data": f"DONE::{t['task_id']}"},
+                        {"text": "❌ هنوز نه", "callback_data": f"NOT_YET::{t['task_id']}"},
+                    ]
                 ]
-            ]
-            send_buttons(chat_id, text, buttons)
-        else:
-            # تسک‌های آینده دور: فقط نمایش
-            send_message(chat_id, text)
+                send_buttons(chat_id, text, buttons)
+            else:
+                send_message(chat_id, text)
+
+    # برگرداندن کیبورد اصلی (نقطه نامرئی)
+    send_message(chat_id, ".", main_keyboard())
