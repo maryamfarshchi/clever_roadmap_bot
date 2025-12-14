@@ -3,18 +3,37 @@
 
 from bot.keyboards import main_keyboard
 from bot.helpers import send_message, send_buttons
-from core.members import find_member, add_member_if_not_exists, mark_welcomed
-from core.tasks import get_tasks_today, get_tasks_week, get_tasks_pending, update_task_status
+
+from core.members import (
+    find_member,
+    add_member_if_not_exists,
+    mark_welcomed,
+)
+
+from core.tasks import (
+    get_tasks_today,
+    get_tasks_week,
+    get_tasks_pending,
+    update_task_status,
+)
+
 from core.messages import get_random_message
 from core.state import clear_user_state
 
+
 ADMIN_CHAT_ID = 341781615
 
+
+# =========================================================
+# UPDATE
+# =========================================================
 def process_update(update):
     try:
+        # ---------- CALLBACK ----------
         if "callback_query" in update:
             return process_callback(update["callback_query"])
 
+        # ---------- MESSAGE ----------
         if "message" not in update:
             return
 
@@ -34,15 +53,26 @@ def process_update(update):
                 name=chat.get("first_name", ""),
                 username=chat.get("username", ""),
             )
-            return send_message(chat_id, "شما ثبت نشده‌اید. با ادمین تماس بگیرید.")
+            return send_message(
+                chat_id,
+                "👋 شما ثبت نشده‌اید.\nبا مدیر سیستم تماس بگیرید.",
+            )
 
         if user.get("welcomed") != "Yes":
             mark_welcomed(chat_id)
-            return send_message(chat_id, f"سلام {user.get('customname') or user.get('name')} 👋", main_keyboard())
+            return send_message(
+                chat_id,
+                f"سلام {user.get('customname') or user.get('name')} 👋",
+                main_keyboard(),
+            )
 
         if text == "/start":
             clear_user_state(chat_id)
-            return send_message(chat_id, "از منوی زیر انتخاب کن 👇", main_keyboard())
+            return send_message(
+                chat_id,
+                "از منوی زیر انتخاب کن 👇",
+                main_keyboard(),
+            )
 
         if text == "لیست کارهای امروز":
             return send_today(chat_id, user)
@@ -59,6 +89,10 @@ def process_update(update):
         send_message(ADMIN_CHAT_ID, f"⚠ ERROR:\n{e}")
         print("HANDLER ERROR:", e)
 
+
+# =========================================================
+# CALLBACK
+# =========================================================
 def process_callback(cb):
     chat_id = cb["message"]["chat"]["id"]
     data = cb.get("data", "")
@@ -66,35 +100,57 @@ def process_callback(cb):
     if data.startswith("DONE::"):
         task_id = data.replace("DONE::", "")
         if update_task_status(task_id, "Yes"):
-            send_message(chat_id, "✔️ تسک انجام شد")
-        else:
-            send_message(chat_id, "❌ خطا در آپدیت")
-        return
+            return send_message(chat_id, "✔️ انجام شد")
+        return send_message(chat_id, "❌ TaskID پیدا نشد")
 
     if data.startswith("NOT_YET::"):
         task_id = data.replace("NOT_YET::", "")
         update_task_status(task_id, "")
-        send_message(chat_id, "⏳ هنوز انجام نشده")
-        return
+        return send_message(chat_id, "⏳ هنوز انجام نشده")
 
+    send_message(chat_id, "❗ callback نامعتبر")
+
+
+# =========================================================
+# TODAY
+# =========================================================
 def send_today(chat_id, user):
     tasks = get_tasks_today(user["team"])
+
     if not tasks:
-        return send_message(chat_id, "امروز تسکی نداری")
+        return send_message(chat_id, "🌤️ امروز کاری ثبت نشده")
 
     for t in tasks:
-        send_message(chat_id, f"📌 *{t['title']}*\n📅 {t['date_fa']}")
+        send_message(
+            chat_id,
+            f"📌 *{t['title']}*\n📅 {t['date_fa']}",
+        )
 
+
+# =========================================================
+# WEEK
+# =========================================================
 def send_week(chat_id, user):
     tasks = get_tasks_week(user["team"])
-    if not tasks:
-        return send_message(chat_id, "این هفته تسکی نیست")
 
-    send_message(chat_id, get_random_message("WEEK", TEAM=user["team"]))
+    if not tasks:
+        return send_message(chat_id, "📆 کاری برای این هفته نیست")
+
+    send_message(
+        chat_id,
+        get_random_message("WEEK", TEAM=user["team"]),
+    )
 
     for t in tasks:
-        send_message(chat_id, f"📅 {t['date_fa']}\n✏️ {t['title']}")
+        send_message(
+            chat_id,
+            f"📅 {t['date_fa']}\n✏️ {t['title']}",
+        )
 
+
+# =========================================================
+# PENDING
+# =========================================================
 def send_pending(chat_id, user):
     tasks = get_tasks_pending(user["team"])
 
@@ -116,14 +172,14 @@ def send_pending(chat_id, user):
         elif delay == -2:
             msg_type = "PRE2"
         else:
-            continue  # آینده دور یا خیلی گذشته منفی
+            continue
 
         text = (
             f"📌 *{t['title']}*\n"
-            f"📅 {t['date_fa']}\n\n"
-            + get_random_message(
+            f"📅 {t['date_fa']}\n\n" +
+            get_random_message(
                 msg_type,
-                NAME=user.get("customname") or user.get("name"),
+                NAME=user.get("customname"),
                 TEAM=user["team"],
                 TITLE=t["title"],
                 DAYS=abs(delay),
@@ -142,8 +198,14 @@ def send_pending(chat_id, user):
 
         buttons = [
             [
-                {"text": "✔️ تحویل شد", "callback_data": f"DONE::{t['task_id']}"},
-                {"text": "❌ هنوز نه", "callback_data": f"NOT_YET::{t['task_id']}"},
+                {
+                    "text": "✔️ تحویل شد",
+                    "callback_data": f"DONE::{t['task_id']}",
+                },
+                {
+                    "text": "❌ هنوز نه",
+                    "callback_data": f"NOT_YET::{t['task_id']}",
+                },
             ]
         ]
 
