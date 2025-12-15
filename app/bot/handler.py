@@ -1,11 +1,10 @@
-# app/bot/sheet_handler.py  (یا اگر اسم فایل handler.py هست، همین رو جایگزین کن)
 
 import random
 from datetime import datetime
 from dateutil import parser  # python-dateutil در requirements.txt هست
-import pytz  # برای timezone ایران (در requirements.txt اضافه کن اگر نیست)
+import pytz  # برای timezone ایران
 
-from core.sheets import get_sheet  # از core.sheets استفاده کن (requests-based)
+from core.sheets import get_sheet  # فقط از core.sheets استفاده کن (requests-based)
 
 # نام شیت‌ها
 WORKSHEET_TASKS = "Tasks"
@@ -13,7 +12,7 @@ WORKSHEET_MEMBERS = "members"
 WORKSHEET_RANDOM = "RandomMessages"
 WORKSHEET_ESCALATE = "EscalateMessages"
 
-# ایندکس ستون‌ها (بر اساس هدر Tasks)
+# ایندکس ستون‌ها (0-based برای لیست rows)
 COL_TASKID = 0
 COL_TEAM = 1
 COL_DATE_EN = 2
@@ -34,26 +33,25 @@ COL_OVER5 = 16
 COL_ESCALATED = 17
 COL_DONE = 18
 
-# timezone ایران
+# timezone ایران برای تاریخ دقیق
 IRAN_TZ = pytz.timezone("Asia/Tehran")
 
 def _get_tasks_rows():
-    """دریافت rows از شیت Tasks با core.sheets"""
+    """دریافت rows از شیت Tasks"""
     rows = get_sheet(WORKSHEET_TASKS)
     if not rows or len(rows) < 2:
         return []
-    return rows  # rows شامل هدر + داده‌هاست
+    return rows  # شامل هدر + داده‌ها
 
 def parse_date(date_str):
-    """پارس هوشمند تاریخ MM/DD/YYYY با fallback"""
+    """پارس هوشمند تاریخ MM/DD/YYYY با fallback قوی"""
     if not date_str:
         return None
     date_str = str(date_str).strip()
-    # پاک کردن کاراکترهای RTL احتمالی
-    date_str = date_str.replace("\u200e", "").replace("\u200f", "")
+    # حذف کاراکترهای ناخواسته RTL
+    date_str = date_str.replace("\u200e", "").replace("\u200f", "").replace("\u202a", "")
     
     try:
-        # فرمت اصلی شیت
         return datetime.strptime(date_str, "%m/%d/%Y")
     except ValueError:
         try:
@@ -65,7 +63,7 @@ def parse_date(date_str):
                 return None
 
 def get_days_overdue(date_str):
-    """تعداد روزهای overdue بر اساس تاریخ ایران"""
+    """تعداد روزهای overdue بر اساس ساعت ایران"""
     due_date = parse_date(date_str)
     if not due_date:
         return 0
@@ -73,12 +71,10 @@ def get_days_overdue(date_str):
     return (today - due_date.date()).days
 
 def is_task_done(row):
-    """تشخیص انجام شده از ستون Done یا Status"""
-    if len(row) <= COL_DONE:
-        return False
-    done_val = str(row[COL_DONE]).strip().upper()
+    """تشخیص انجام‌شده از ستون Done یا Status"""
+    done_val = str(row[COL_DONE]).strip().upper() if len(row) > COL_DONE else ""
     status_val = str(row[COL_STATUS]).strip().lower() if len(row) > COL_STATUS else ""
-    return done_val == "YES" or "done" in status_val or "yes" in status_val or "انجام شد" in status_val
+    return (done_val == "YES" or done_val == "Y") or any(k in status_val for k in ["done", "yes", "انجام شد", "تحویل"])
 
 def get_user_tasks(team, include_today=True, include_overdue=True):
     rows = _get_tasks_rows()
@@ -86,7 +82,7 @@ def get_user_tasks(team, include_today=True, include_overdue=True):
         return []
     
     tasks = []
-    for i, row in enumerate(rows[1:], start=2):  # از ردیف ۲ (داده‌ها)
+    for i, row in enumerate(rows[1:], start=2):  # از ردیف ۲
         if len(row) <= COL_TEAM or str(row[COL_TEAM]).strip() != team:
             continue
         if is_task_done(row):
@@ -102,14 +98,14 @@ def get_user_tasks(team, include_today=True, include_overdue=True):
         
         tasks.append({
             "row": i,
-            "task_id": row[COL_TASKID].strip() if len(row) > COL_TASKID else "",
-            "title": row[COL_TITLE].strip() if len(row) > COL_TITLE else "",
-            "date_fa": row[COL_DATE_FA].strip() if len(row) > COL_DATE_FA else "",
+            "task_id": str(row[COL_TASKID]).strip() if len(row) > COL_TASKID else "",
+            "title": str(row[COL_TITLE]).strip() if len(row) > COL_TITLE else "",
+            "date_fa": str(row[COL_DATE_FA]).strip() if len(row) > COL_DATE_FA else "",
             "date_en": row[COL_DATE_EN],
-            "time": (row[COL_TIME].strip() if len(row) > COL_TIME else "") or "",
-            "type": row[COL_TYPE].strip() if len(row) > COL_TYPE else "",
-            "comment": row[COL_COMMENT].strip() if len(row) > COL_COMMENT else "",
-            "status": row[COL_STATUS].strip() if len(row) > COL_STATUS else "",
+            "time": str(row[COL_TIME]).strip() if len(row) > COL_TIME else "",
+            "type": str(row[COL_TYPE]).strip() if len(row) > COL_TYPE else "",
+            "comment": str(row[COL_COMMENT]).strip() if len(row) > COL_COMMENT else "",
+            "status": str(row[COL_STATUS]).strip() if len(row) > COL_STATUS else "",
             "days_overdue": days,
             "team": team
         })
@@ -120,17 +116,16 @@ def get_today_tasks(team):
     return [t for t in get_user_tasks(team, include_overdue=False) if t["days_overdue"] == 0]
 
 def get_overdue_tasks(team):
-    overdue = get_user_tasks(team, include_today=False)
-    return [t for t in overdue if t["days_overdue"] > 0]
+    return [t for t in get_user_tasks(team, include_today=False, include_overdue=True) if t["days_overdue"] > 0]
 
 def mark_task_done(task_id):
     """آپدیت Status به Done و Done به YES"""
     from core.sheets import update_cell
     rows = _get_tasks_rows()
     for i, row in enumerate(rows[1:], start=2):
-        if len(row) > COL_TASKID and row[COL_TASKID].strip() == task_id:
-            update_cell(WORKSHEET_TASKS, i, COL_STATUS + 1, "Done")  # ستون J = 10ام (1-based)
-            update_cell(WORKSHEET_TASKS, i, COL_DONE + 1, "YES")     # ستون S = 19ام (1-based)
+        if len(row) > COL_TASKID and str(row[COL_TASKID]).strip() == task_id:
+            update_cell(WORKSHEET_TASKS, i, COL_STATUS + 1, "Done")  # ستون J (10ام، 1-based)
+            update_cell(WORKSHEET_TASKS, i, COL_DONE + 1, "YES")      # ستون S (19ام، 1-based)
             return True
     return False
 
@@ -138,7 +133,7 @@ def mark_task_not_done(task_id):
     from core.sheets import update_cell
     rows = _get_tasks_rows()
     for i, row in enumerate(rows[1:], start=2):
-        if len(row) > COL_TASKID and row[COL_TASKID].strip() == task_id:
+        if len(row) > COL_TASKID and str(row[COL_TASKID]).strip() == task_id:
             update_cell(WORKSHEET_TASKS, i, COL_STATUS + 1, "Not Done")
             return True
     return False
@@ -146,19 +141,19 @@ def mark_task_not_done(task_id):
 def get_random_message():
     try:
         rows = get_sheet(WORKSHEET_RANDOM)
-        messages = [row[0].strip() for row in rows[1:] if row and row[0].strip()]
+        messages = [str(r[0]).strip() for r in rows[1:] if r and str(r[0]).strip()]
         if messages:
             return random.choice(messages)
     except Exception as e:
-        print(f"[RANDOM MSG ERROR] {e}")
+        print(f"[RANDOM ERROR] {e}")
     return "یادت نره این تسک رو انجام بدی! ⏰"
 
 def get_escalate_message():
     try:
         rows = get_sheet(WORKSHEET_ESCALATE)
-        messages = [row[0].strip() for row in rows[1:] if row and row[0].strip()]
+        messages = [str(r[0]).strip() for r in rows[1:] if r and str(r[0]).strip()]
         if messages:
-            return random.choice(messages)
+           返す random.choice(messages)
     except Exception as e:
-        print(f"[ESCALATE MSG ERROR] {e}")
+        print(f"[ESCALATE ERROR] {e}")
     return "⚠️ هشدار: تسک زیر بیش از ۵ روز عقب افتاده!"
