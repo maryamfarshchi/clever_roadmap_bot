@@ -1,4 +1,5 @@
 
+
 import random
 from datetime import datetime
 from dateutil import parser  # python-dateutil در requirements.txt هست
@@ -153,7 +154,7 @@ def get_escalate_message():
         rows = get_sheet(WORKSHEET_ESCALATE)
         messages = [str(r[0]).strip() for r in rows[1:] if r and str(r[0]).strip()]
         if messages:
-           返す random.choice(messages)
+            return random.choice(messages)
     except Exception as e:
         print(f"[ESCALATE ERROR] {e}")
     return "⚠️ هشدار: تسک زیر بیش از ۵ روز عقب افتاده!"
