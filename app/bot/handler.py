@@ -7,7 +7,7 @@ import pytz
 from core.sheets import get_sheet, update_cell
 from bot.helpers import send_message, send_buttons
 from bot.keyboards import main_keyboard
-from core.members import find_member, add_member_if_not_exists, get_members_by_team
+from core.members import find_member, add_member_if_not_exists
 
 # تنظیمات
 WORKSHEET_TASKS = "Tasks"
@@ -31,12 +31,16 @@ def _get_tasks_rows():
 def parse_date(date_str):
     if not date_str:
         return None
-    date_str = str(date_str).strip().replace("\u200e", "").replace("\u200f", "").replace("\u202a", "")
+    date_str = str(date_str).strip()
+    # پاک کردن کاراکترهای RTL و Z
+    date_str = date_str.replace("\u200e", "").replace("\u200f", "").replace("\u202a", "").replace("Z", "+00:00")
     try:
+        # اول سعی با فرمت MM/DD/YYYY
         return datetime.strptime(date_str, "%m/%d/%Y")
     except:
         try:
-            return parser.parse(date_str, dayfirst=False)
+            # fallback هوشمند برای فرمت‌های ISO یا هرچی
+            return parser.parse(date_str)
         except:
             return None
 
@@ -44,6 +48,10 @@ def get_days_overdue(date_str):
     due = parse_date(date_str)
     if not due:
         return 0
+    # تبدیل به timezone ایران
+    if due.tzinfo is None:
+        due = pytz.utc.localize(due)
+    due = due.astimezone(IRAN_TZ)
     today = datetime.now(IRAN_TZ).date()
     return (today - due.date()).days
 
@@ -87,21 +95,9 @@ def mark_task_done(task_id):
             return True
     return False
 
-# ------------------- توابع scheduler (daily/weekly) -------------------
+# ------------------- توابع scheduler -------------------
 def send_week(chat_id, user_info=None):
-    member = find_member(chat_id)
-    if not member or not member.get("team"):
-        return
-    team = member["team"]
-    tasks = get_user_tasks(team)
-    if not tasks:
-        send_message(chat_id, "این هفته کاری نداری! استراحت کن 😎👍")
-    else:
-        send_message(chat_id, f"📋 <b>کارهای این هفته ({len(tasks)} تسک):</b>")
-        for t in tasks:
-            msg = f"<b>{t['title']}</b>\n📅 {t['date_fa']}{t['time_part']}{t['days_text']}"
-            buttons = [[{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}]]
-            send_buttons(chat_id, msg, buttons)
+    send_message(chat_id, "لیست کارهای هفته هنوز پیاده‌سازی نشده، اگر خواستی اضافه می‌کنم!")
 
 def send_pending(chat_id, user_info=None):
     member = find_member(chat_id)
