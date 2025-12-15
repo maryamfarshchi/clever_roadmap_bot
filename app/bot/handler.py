@@ -87,7 +87,7 @@ def mark_task_done(task_id):
             return True
     return False
 
-# ------------------- توابع scheduler -------------------
+# ------------------- توابع scheduler (daily/weekly) -------------------
 def send_week(chat_id, user_info=None):
     member = find_member(chat_id)
     if not member or not member.get("team"):
