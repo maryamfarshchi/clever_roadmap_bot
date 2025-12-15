@@ -38,7 +38,6 @@ def _get_tasks_rows():
     return rows
 
 def _get_messages(type_filter):
-    """گرفتن پیام رندوم از شیت Messages با Type مشخص"""
     try:
         rows = get_sheet(WORKSHEET_MESSAGES)
         msgs = [row[1].strip() for row in rows[1:] if len(row) > 1 and str(row[0]).strip().upper() == type_filter and row[1].strip()]
@@ -46,7 +45,7 @@ def _get_messages(type_filter):
             return random.choice(msgs)
     except Exception as e:
         print(f"[MESSAGES ERROR] {e}")
-    return None
+    return "یادت نره تسک‌هاتو انجام بدی! ⏰"
 
 def parse_date(date_str):
     if not date_str:
@@ -100,7 +99,7 @@ def mark_task_done(task_id):
             return True
     return False
 
-# ------------------- تریگر روزانه (ساعت ۹ صبح) -------------------
+# ------------------- تریگر روزانه (PRE2/DUE/OVR/ESC) -------------------
 def send_daily_reminders():
     rows = _get_tasks_rows()
     for i, row in enumerate(rows[1:], start=2):
@@ -137,10 +136,11 @@ def send_daily_reminders():
         if not message_text:
             continue
         
-        # جایگزینی placeholderها (NAME رو فعلاً "کاربر" گذاشتم، اگر name در members داری بعداً اضافه کن)
-        message_text = message_text.replace("{NAME}", "کاربر").replace("{TITLE}", title).replace("{TEAM}", team).replace("{DAYS}", str(days if days > 0 else abs(days))).replace("{DATE_FA}", date_fa)
+        # جایگزینی placeholderها (NAME رو از members می‌گیریم اگر باشه، فعلاً "تیم" یا "کاربر")
+        name = "کاربر"
+        message_text = message_text.replace("{NAME}", name).replace("{TITLE}", title).replace("{TEAM}", team).replace("{DAYS}", str(abs(days))).replace("{DATE_FA}", date_fa)
         
-        target_members = members if msg_type != "ESC" else get_members_by_team("ALL")  # ESC به مدیران
+        target_members = members if msg_type != "ESC" else get_members_by_team("ALL")
         
         for member in target_members:
             chat_id = member["chat_id"]
@@ -155,7 +155,14 @@ def send_daily_reminders():
         
         set_flag_sent(i, days)
 
-# ------------------- هندلر webhook (دکمه‌های کاربر با فرمت خوشگل) -------------------
+# سازگاری با scheduler قدیمی
+def send_pending(chat_id, user_info=None):
+    send_daily_reminders()  # حالا pending همون daily هست
+
+def send_week(chat_id, user_info=None):
+    send_message(chat_id, "لیست کارهای هفته هنوز پیاده‌سازی نشده، بعداً اضافه می‌کنم اگر خواستی!")
+
+# ------------------- webhook -------------------
 def process_update(update):
     if "message" not in update:
         if "callback_query" in update:
