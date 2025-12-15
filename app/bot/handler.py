@@ -5,81 +5,116 @@ from dateutil import parser
 import pytz
 
 from core.sheets import get_sheet, update_cell
-from bot.helpers import send_message
+from bot.helpers import send_message, send_buttons
 from bot.keyboards import main_keyboard
 from core.members import find_member, add_member_if_not_exists
-from core.tasks import get_tasks_today, get_tasks_week, get_tasks_pending  # از tasks.py استفاده کن اگر وجود داره، یا منطق رو اینجا کپی کن
 
-# اگر tasks.py درست کار نمی‌کنه، منطق رو اینجا بگذار (از کد قبلی کپی کردم)
-# اما اولویت با import از core.tasks
+# تنظیمات
+WORKSHEET_TASKS = "Tasks"
+COL_TASKID = 0
+COL_TEAM = 1
+COL_DATE_EN = 2
+COL_DATE_FA = 3
+COL_TIME = 5
+COL_TITLE = 6
+COL_STATUS = 9
+COL_DONE = 18
 
 IRAN_TZ = pytz.timezone("Asia/Tehran")
+
+def _get_tasks_rows():
+    rows = get_sheet(WORKSHEET_TASKS)
+    if not rows or len(rows) < 2:
+        return []
+    return rows
+
+def parse_date(date_str):
+    if not date_str:
+        return None
+    date_str = str(date_str).strip().replace("\u200e", "").replace("\u200f", "")
+    try:
+        return datetime.strptime(date_str, "%m/%d/%Y")
+    except:
+        try:
+            return parser.parse(date_str, dayfirst=False)
+        except:
+            return None
+
+def get_days_overdue(date_str):
+    due = parse_date(date_str)
+    if not due:
+        return 0
+    today = datetime.now(IRAN_TZ).date()
+    return (today - due.date()).days
+
+def is_task_done(row):
+    done = str(row[COL_DONE]).strip().upper() if len(row) > COL_DONE else ""
+    status = str(row[COL_STATUS]).strip().lower() if len(row) > COL_STATUS else ""
+    return done == "YES" or any(k in status for k in ["done", "yes", "انجام شد", "تحویل"])
+
+def get_user_tasks(team, today_only=False):
+    rows = _get_tasks_rows()
+    tasks = []
+    for row in rows[1:]:
+        if len(row) <= COL_TEAM or str(row[COL_TEAM]).strip() != team:
+            continue
+        if is_task_done(row):
+            continue
+        days = get_days_overdue(row[COL_DATE_EN])
+        if days < 0:
+            continue
+        if today_only and days != 0:
+            continue
+        time_str = str(row[COL_TIME]).strip() if len(row) > COL_TIME else ""
+        time_part = f" ⏰ {time_str}" if time_str else ""
+        days_text = " (امروز)" if days == 0 else f" ({days} روز گذشته)" if days > 0 else ""
+        tasks.append({
+            "task_id": str(row[COL_TASKID]).strip(),
+            "title": str(row[COL_TITLE]).strip(),
+            "date_fa": str(row[COL_DATE_FA]).strip(),
+            "time_part": time_part,
+            "days_text": days_text,
+            "days": days
+        })
+    return tasks
+
+def mark_task_done(task_id):
+    rows = _get_tasks_rows()
+    for i, row in enumerate(rows[1:], start=2):
+        if str(row[COL_TASKID]).strip() == task_id:
+            update_cell(WORKSHEET_TASKS, i, COL_STATUS + 1, "Done")
+            update_cell(WORKSHEET_TASKS, i, COL_DONE + 1, "YES")
+            return True
+    return False
 
 def get_random_message():
     try:
         rows = get_sheet("RandomMessages")
         msgs = [r[0].strip() for r in rows[1:] if r and r[0].strip()]
         if msgs:
-            return random.choice(msgs)
+            return random.choice(msgs) + " ⚠️"
     except:
         pass
-    return "یادت نره تسک‌هاتو انجام بدی! ⏰"
+    return "یادت نره تسک‌هاتو انجام بدی! ⏰⚠️"
 
-# ------------------- توابع ارسال برای scheduler -------------------
-def send_week(chat_id, user_info=None):
-    """ارسال لیست کارهای هفته (برای weekly job)"""
-    member = find_member(chat_id)
-    if not member or not member.get("team"):
-        return
-    team = member["team"]
-    tasks = get_tasks_week(team)  # از core.tasks
-    if not tasks:
-        send_message(chat_id, "این هفته کاری نداری! عالیه 👍")
-    else:
-        msg = "<b>کارهای این هفته:</b>\n\n"
-        for t in tasks:
-            msg += f"• {t['title']} ({t['date_fa']})\n"
-        send_message(chat_id, msg)
-
-def send_pending(chat_id, user_info=None):
-    """ارسال تسک‌های انجام نشده (overdue + امروز) برای daily job"""
-    member = find_member(chat_id)
-    if not member or not member.get("team"):
-        return
-    team = member["team"]
-    tasks_today = get_tasks_today(team)
-    tasks_overdue = get_tasks_pending(team)  # یا overdue جدا
-    msg = ""
-    if tasks_today:
-        msg += "<b>کارهای امروز:</b>\n\n"
-        for t in tasks_today:
-            msg += f"• {t['title']} ({t['date_fa']})\n\n"
-    if tasks_overdue:
-        random_msg = get_random_message()
-        msg += f"{random_msg}\n\n<b>تسک‌های عقب افتاده:</b>\n\n"
-        for t in tasks_overdue:
-            days_text = "امروز" if t.get("delay_days", 0) == 0 else f"{t['delay_days']} روز گذشته"
-            msg += f"• {t['title']} ({days_text})\n"
-    if not msg:
-        send_message(chat_id, "هیچ تسک انجام نشده‌ای نداری! عالیه ✅")
-    else:
-        send_message(chat_id, msg or "تسک جدیدی نداری!")
-
-# ------------------- هندلر اصلی webhook -------------------
+# ------------------- هندلر webhook -------------------
 def process_update(update):
     if "message" not in update:
-        # هندل callback برای "تحویل دادم"
+        # هندل callback
         if "callback_query" in update:
             cb = update["callback_query"]
             data = cb.get("data", "")
             chat_id = cb["message"]["chat"]["id"]
+            message_id = cb["message"]["message_id"]
             if data.startswith("done|"):
                 task_id = data.split("|")[1]
-                from core.tasks import update_task_status
-                if update_task_status(task_id, "done"):
+                if mark_task_done(task_id):
                     send_message(chat_id, "عالی! تسک انجام شد ✅")
                 else:
                     send_message(chat_id, "تسک پیدا نشد!")
+            elif data.startswith("notyet|"):
+                send_message(chat_id, "اوکی، بعداً یادآوری می‌کنم ⏰")
+            # می‌تونی message edit کنی اگر بخوای
         return
 
     message = update["message"]
@@ -96,23 +131,34 @@ def process_update(update):
 
     team = member["team"]
 
-    if text in ["/strat", "/start"]:
-        send_message(chat_id, "سلام! خوش برگشتی 👋", main_keyboard())
+    if text in ["/start", "منوی اصلی"]:
+        send_message(chat_id, "سلام! خوش برگشتی 👋\nدکمه‌های زیر رو بزن:", main_keyboard())
 
     elif text == "لیست کارهای امروز":
-        tasks = get_tasks_today(team)
+        tasks = get_user_tasks(team, today_only=True)
         if not tasks:
-            send_message(chat_id, "امروز کاری نداری! 👍")
+            send_message(chat_id, "امروز کاری نداری! استراحت کن 😎👍")
         else:
-            msg = "<b>کارهای امروز:</b>\n\n"
+            send_message(chat_id, f"📋 <b>کارهای امروز ({len(tasks)} تسک):</b>")
             for t in tasks:
-                msg += f"• {t['title']} ({t['date_fa']})\n\n"
-            send_message(chat_id, msg)
-
-    elif text == "لیست کارهای هفته":
-        send_week(chat_id)
+                msg = f"<b>{t['title']}</b>\n📅 {t['date_fa']}{t['time_part']}{t['days_text']}"
+                buttons = [[{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}]]
+                send_buttons(chat_id, msg, buttons)
 
     elif text == "تسک های انجام نشده":
-        send_pending(chat_id)
+        tasks = get_user_tasks(team)
+        if not tasks:
+            send_message(chat_id, "تسک انجام نشده‌ای نداری! فوق‌العاده‌ای 🔥✅")
+        else:
+            random_msg = get_random_message()
+            send_message(chat_id, random_msg)
+            send_message(chat_id, f"⚠️ <b>تسک‌های عقب افتاده ({len(tasks)} تسک):</b>")
+            for t in tasks:
+                msg = f"<b>{t['title']}</b>\n📅 {t['date_fa']}{t['time_part']}{t['days_text']}"
+                buttons = [
+                    [{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}],
+                    [{"text": "نه هنوز ⏰", "callback_data": f"notyet|{t['task_id']}"}]
+                ]
+                send_buttons(chat_id, msg, buttons)
 
-    # می‌تونی دکمه inline اضافه کنی برای تحویل دادم در لیست overdue
+# برای scheduler اگر لازم شد send_week و send_pending رو هم می‌تونی مشابه این فرمت کنی
