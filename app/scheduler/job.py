@@ -1,48 +1,19 @@
 # app/scheduler/job.py
 # -*- coding: utf-8 -*-
 
-from core.members import get_members_by_team
-from bot.handler import send_week, send_pending
+from bot.handler import send_daily_reminders
 
+# اگر weekly هنوز نیاز داری، می‌تونی بعداً send_week رو در handler اضافه کنی
+# فعلاً خالی گذاشتم تا ارور نده (main.py هنوز import می‌کنه)
 
-TEAMS = ["production", "ai production", "digital"]
-
-
-# ----------------------------------------------------
-#  اجرای هفتگی: برای هر عضو هر تیم، لیست هفته را بفرست
-# ----------------------------------------------------
 def run_weekly_jobs():
-    for team in TEAMS:
-        members = get_members_by_team(team)
-        print(f"[WEEKLY] team={team} members={len(members)}")
+    print("[WEEKLY JOB] No weekly action defined yet (you can add send_week later if needed)")
 
-        for user in members:
-            try:
-                send_week(user["chat_id"], user)
-            except Exception as e:
-                print(
-                    "[WEEKLY ERROR]",
-                    team,
-                    user.get("chat_id"),
-                    str(e),
-                )
-
-
-# ----------------------------------------------------
-#  اجرای روزانه: برای هر عضو هر تیم، ریمایندر PRE2/DUE/OVR/ESC
-# ----------------------------------------------------
+# اجرای روزانه: هر روز ساعت ۹ صبح، پیام‌های PRE2/DUE/OVR/ESC از شیت Messages با فلگ و دکمه‌ها
 def run_daily_jobs():
-    for team in TEAMS:
-        members = get_members_by_team(team)
-        print(f"[DAILY] team={team} members={len(members)}")
-
-        for user in members:
-            try:
-                send_pending(user["chat_id"], user)
-            except Exception as e:
-                print(
-                    "[DAILY ERROR]",
-                    team,
-                    user.get("chat_id"),
-                    str(e),
-                )
+    print("[DAILY JOB] Starting daily reminders (PRE2, DUE, OVR, ESC) at 9 AM...")
+    try:
+        send_daily_reminders()
+        print("[DAILY JOB] Daily reminders sent successfully")
+    except Exception as e:
+        print(f"[DAILY JOB ERROR] {str(e)}")
