@@ -1,15 +1,29 @@
 # app/scheduler/job.py
 # -*- coding: utf-8 -*-
 
-from bot.handler import send_daily_reminders, send_week, send_pending
+from core.members import get_members_by_team
+from bot.handler import send_week, send_pending
 
 TEAMS = ["production", "ai production", "digital"]
 
+# اجرای هفتگی
 def run_weekly_jobs():
-    # اگر weekly خواستی، بعداً اضافه کن
-    print("[WEEKLY JOB] Weekly job not fully implemented yet")
+    for team in TEAMS:
+        members = get_members_by_team(team)
+        print(f"[WEEKLY] team={team} members={len(members)}")
+        for user in members:
+            try:
+                send_week(user["chat_id"], user)
+            except Exception as e:
+                print("[WEEKLY ERROR]", team, user.get("chat_id"), str(e))
 
+# اجرای روزانه (هر روز ساعت ۹ صبح)
 def run_daily_jobs():
-    print("[DAILY JOB] Starting daily reminders...")
-    send_daily_reminders()  # تریگر اصلی روزانه
-    print("[DAILY JOB] Finished")
+    for team in TEAMS:
+        members = get_members_by_team(team)
+        print(f"[DAILY] team={team} members={len(members)}")
+        for user in members:
+            try:
+                send_pending(user["chat_id"], user)
+            except Exception as e:
+                print("[DAILY ERROR]", team, user.get("chat_id"), str(e))
