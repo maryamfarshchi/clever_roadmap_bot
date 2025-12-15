@@ -1,212 +1,162 @@
-# app/bot/handler.py
-# -*- coding: utf-8 -*-
+# sheet_handler.py
+import gspread
+from datetime import datetime
+from dateutil import parser  # حتماً به requirements.txt اضافه کن: python-dateutil
+import random
 
-from bot.keyboards import main_keyboard
-from bot.helpers import send_message, send_buttons
+# فرض می‌کنیم gc و SPREADSHEET_ID در bot.py یا config تعریف شده
+# اگر جداگانه import می‌کنی، اینجا اضافه کن
 
-from core.members import (
-    find_member,
-    add_member_if_not_exists,
-    mark_welcomed,
-)
+WORKSHEET_TASKS = "Tasks"
+WORKSHEET_MEMBERS = "members"
+WORKSHEET_RANDOM = "RandomMessages"
+WORKSHEET_ESCALATE = "EscalateMessages"
 
-from core.tasks import (
-    get_tasks_today,
-    get_tasks_week,
-    get_tasks_pending,
-    update_task_status,
-)
+# ایندکس ستون‌ها در شیت Tasks (بر اساس هدر)
+COL_TASKID = 0
+COL_TEAM = 1
+COL_DATE_EN = 2
+COL_DATE_FA = 3
+COL_DAYNAME = 4
+COL_TIME = 5
+COL_TITLE = 6
+COL_TYPE = 7
+COL_COMMENT = 8
+COL_STATUS = 9
+COL_PRE2 = 10
+COL_DUE = 11
+COL_OVER1 = 12
+COL_OVER2 = 13
+COL_OVER3 = 14
+COL_OVER4 = 15
+COL_OVER5 = 16
+COL_ESCALATED = 17
+COL_DONE = 18
 
-from core.messages import get_random_message
-from core.state import clear_user_state
+def get_sheet():
+    return gc.open_by_key(SPREADSHEET_ID).worksheet(WORKSHEET_TASKS)
 
+def get_members_sheet():
+    return gc.open_by_key(SPREADSHEET_ID).worksheet(WORKSHEET_MEMBERS)
 
-ADMIN_CHAT_ID = 341781615
-
-
-# =========================================================
-# UPDATE
-# =========================================================
-def process_update(update):
+def parse_date(date_str):
+    if not date_str:
+        return None
+    date_str = str(date_str).strip()
     try:
-        # ---------- CALLBACK ----------
-        if "callback_query" in update:
-            return process_callback(update["callback_query"])
+        # اول فرمت اصلی: MM/DD/YYYY
+        return datetime.strptime(date_str, "%m/%d/%Y")
+    except ValueError:
+        try:
+            # اگر YYYY-MM-DD بود
+            return datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            try:
+                # اگر هر فرمتی بود (هوشمند)
+                return parser.parse(date_str)
+            except:
+                return None
 
-        # ---------- MESSAGE ----------
-        if "message" not in update:
-            return
+def get_days_overdue(date_str):
+    due_date = parse_date(date_str)
+    if not due_date:
+        return 0
+    today = datetime.now().date()
+    due = due_date.date()
+    return (today - due).days
 
-        msg = update["message"]
-        chat = msg.get("chat", {})
-        chat_id = chat.get("id")
-        text = msg.get("text", "").strip()
+def is_task_done(row):
+    done_val = str(row[COL_DONE]).strip().upper()
+    status_val = str(row[COL_STATUS]).strip()
+    # اگر Done = YES یا Status شامل "Done" یا "انجام شد" باشه → انجام شده
+    if done_val == "YES" or "done" in status_val.lower() or "انجام شد" in status_val:
+        return True
+    return False
 
-        if not chat_id:
-            return
-
-        user = find_member(chat_id)
-
-        if not user:
-            add_member_if_not_exists(
-                chat_id=chat_id,
-                name=chat.get("first_name", ""),
-                username=chat.get("username", ""),
-            )
-            return send_message(
-                chat_id,
-                "👋 شما ثبت نشده‌اید.\nبا مدیر سیستم تماس بگیرید.",
-            )
-
-        if user.get("welcomed") != "Yes":
-            mark_welcomed(chat_id)
-            return send_message(
-                chat_id,
-                f"سلام {user.get('customname') or user.get('name')} 👋",
-                main_keyboard(),
-            )
-
-        if text == "/start":
-            clear_user_state(chat_id)
-            return send_message(
-                chat_id,
-                "از منوی زیر انتخاب کن 👇",
-                main_keyboard(),
-            )
-
-        if text == "لیست کارهای امروز":
-            return send_today(chat_id, user)
-
-        if text == "لیست کارهای هفته":
-            return send_week(chat_id, user)
-
-        if text == "تسک های انجام نشده":
-            return send_pending(chat_id, user)
-
-        return send_message(chat_id, "❗ فقط از دکمه‌ها استفاده کن.")
-
-    except Exception as e:
-        send_message(ADMIN_CHAT_ID, f"⚠ ERROR:\n{e}")
-        print("HANDLER ERROR:", e)
-
-
-# =========================================================
-# CALLBACK
-# =========================================================
-def process_callback(cb):
-    chat_id = cb["message"]["chat"]["id"]
-    data = cb.get("data", "")
-
-    if data.startswith("DONE::"):
-        task_id = data.replace("DONE::", "")
-        if update_task_status(task_id, "Yes"):
-            return send_message(chat_id, "✔️ انجام شد")
-        return send_message(chat_id, "❌ TaskID پیدا نشد")
-
-    if data.startswith("NOT_YET::"):
-        task_id = data.replace("NOT_YET::", "")
-        update_task_status(task_id, "")
-        return send_message(chat_id, "⏳ هنوز انجام نشده")
-
-    send_message(chat_id, "❗ callback نامعتبر")
-
-
-# =========================================================
-# TODAY
-# =========================================================
-def send_today(chat_id, user):
-    tasks = get_tasks_today(user["team"])
-
-    if not tasks:
-        return send_message(chat_id, "🌤️ امروز کاری ثبت نشده")
-
-    for t in tasks:
-        send_message(
-            chat_id,
-            f"📌 *{t['title']}*\n📅 {t['date_fa']}",
-        )
-
-
-# =========================================================
-# WEEK
-# =========================================================
-def send_week(chat_id, user):
-    tasks = get_tasks_week(user["team"])
-
-    if not tasks:
-        return send_message(chat_id, "📆 کاری برای این هفته نیست")
-
-    send_message(
-        chat_id,
-        get_random_message("WEEK", TEAM=user["team"]),
-    )
-
-    for t in tasks:
-        send_message(
-            chat_id,
-            f"📅 {t['date_fa']}\n✏️ {t['title']}",
-        )
-
-
-# =========================================================
-# PENDING
-# =========================================================
-def send_pending(chat_id, user):
-    tasks = get_tasks_pending(user["team"])
-
-    if not tasks:
-        return send_message(chat_id, "🎉 همه تسک‌ها انجام شده")
-
-    for t in tasks:
-        delay = t["delay_days"]
-
-        if delay is None:
+def get_user_tasks(team, include_today=True, include_overdue=True):
+    sheet = get_sheet()
+    records = sheet.get_all_values()
+    if len(records) < 2:
+        return []
+    
+    header = records[0]
+    tasks = []
+    
+    for i, row in enumerate(records[1:], start=2):
+        if len(row) <= COL_TEAM:
             continue
-
-        if delay > 5:
-            msg_type = "ESC"
-        elif delay > 0:
-            msg_type = "OVR"
-        elif delay == 0:
-            msg_type = "DUE"
-        elif delay == -2:
-            msg_type = "PRE2"
-        else:
+        if row[COL_TEAM] != team:
             continue
-
-        text = (
-            f"📌 *{t['title']}*\n"
-            f"📅 {t['date_fa']}\n\n" +
-            get_random_message(
-                msg_type,
-                NAME=user.get("customname"),
-                TEAM=user["team"],
-                TITLE=t["title"],
-                DAYS=abs(delay),
-                DATE_FA=t["date_fa"],
-            )
-        )
-
-        if msg_type == "ESC":
-            send_message(ADMIN_CHAT_ID, f"⚠ ESC\n{text}")
-            send_message(chat_id, text)
+        if is_task_done(row):
             continue
-
-        if msg_type == "PRE2":
-            send_message(chat_id, text)
+        
+        days = get_days_overdue(row[COL_DATE_EN])
+        if days < 0:  # آینده
             continue
+        if not include_today and days == 0:
+            continue
+        if not include_overdue and days > 0:
+            continue
+        
+        tasks.append({
+            "row": i,
+            "task_id": row[COL_TASKID],
+            "title": row[COL_TITLE],
+            "date_fa": row[COL_DATE_FA],
+            "date_en": row[COL_DATE_EN],
+            "time": row[COL_TIME] or "",
+            "type": row[COL_TYPE],
+            "comment": row[COL_COMMENT],
+            "status": row[COL_STATUS],
+            "days_overdue": days,
+            "team": team
+        })
+    
+    return tasks
 
-        buttons = [
-            [
-                {
-                    "text": "✔️ تحویل شد",
-                    "callback_data": f"DONE::{t['task_id']}",
-                },
-                {
-                    "text": "❌ هنوز نه",
-                    "callback_data": f"NOT_YET::{t['task_id']}",
-                },
-            ]
-        ]
+def get_today_tasks(team):
+    return [t for t in get_user_tasks(team, include_overdue=False) if t["days_overdue"] == 0]
 
-        send_buttons(chat_id, text, buttons)
+def get_overdue_tasks(team):
+    return [t for t in get_user_tasks(team, include_today=False, include_overdue=True) if t["days_overdue"] > 0]
+
+def mark_task_done(task_id):
+    sheet = get_sheet()
+    records = sheet.get_all_values()
+    for i, row in enumerate(records[1:], start=2):
+        if row[COL_TASKID] == task_id:
+            sheet.update(f"J{i}", "Done")  # ستون Status
+            sheet.update(f"S{i}", "YES")   # ستون Done (ستون ۱۹ام = S)
+            return True
+    return False
+
+def mark_task_not_done(task_id):
+    sheet = get_sheet()
+    records = sheet.get_all_values()
+    for i, row in enumerate(records[1:], start=2):
+        if row[COL_TASKID] == task_id:
+            sheet.update(f"J{i}", "Not Done")
+            return True
+    return False
+
+def get_random_message():
+    try:
+        sh = gc.open_by_key(SPREADSHEET_ID).worksheet(WORKSHEET_RANDOM)
+        vals = sh.get_all_values()
+        messages = [row[0] for row in vals[1:] if row and row[0].strip()]
+        if messages:
+            return random.choice(messages)
+    except:
+        pass
+    return "یادت نره این تسک رو انجام بدی! ⏰"
+
+def get_escalate_message():
+    try:
+        sh = gc.open_by_key(SPREADSHEET_ID).worksheet(WORKSHEET_ESCALATE)
+        vals = sh.get_all_values()
+        messages = [row[0] for row in vals[1:] if row and row[0].strip()]
+        if messages:
+            return random.choice(messages)
+    except:
+        pass
+    return "⚠️ هشدار: تسک زیر بیش از ۵ روز عقب افتاده!"
