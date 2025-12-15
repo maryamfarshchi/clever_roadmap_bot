@@ -7,10 +7,11 @@ import pytz
 from core.sheets import get_sheet, update_cell
 from bot.helpers import send_message, send_buttons
 from bot.keyboards import main_keyboard
-from core.members import find_member, add_member_if_not_exists
+from core.members import find_member, add_member_if_not_exists, get_members_by_team
 
 # تنظیمات
 WORKSHEET_TASKS = "Tasks"
+WORKSHEET_RANDOM = "RandomMessages"
 COL_TASKID = 0
 COL_TEAM = 1
 COL_DATE_EN = 2
@@ -89,7 +90,7 @@ def mark_task_done(task_id):
 
 def get_random_message():
     try:
-        rows = get_sheet("RandomMessages")
+        rows = get_sheet(WORKSHEET_RANDOM)
         msgs = [r[0].strip() for r in rows[1:] if r and r[0].strip()]
         if msgs:
             return random.choice(msgs) + " ⚠️"
@@ -97,15 +98,59 @@ def get_random_message():
         pass
     return "یادت نره تسک‌هاتو انجام بدی! ⏰⚠️"
 
+# ------------------- توابع برای scheduler -------------------
+def send_week(chat_id, user_info=None):
+    member = find_member(chat_id)
+    if not member or not member.get("team"):
+        return
+    team = member["team"]
+    tasks = get_user_tasks(team)  # همه کارهای هفته (می‌تونی فیلتر کنی اگر بخوای)
+    if not tasks:
+        send_message(chat_id, "این هفته کاری نداری! استراحت کن 😎👍")
+    else:
+        send_message(chat_id, f"📋 <b>کارهای این هفته ({len(tasks)} تسک):</b>")
+        for t in tasks:
+            msg = f"<b>{t['title']}</b>\n📅 {t['date_fa']}{t['time_part']}{t['days_text']}"
+            buttons = [[{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}]]
+            send_buttons(chat_id, msg, buttons)
+
+def send_pending(chat_id, user_info=None):
+    member = find_member(chat_id)
+    if not member or not member.get("team"):
+        return
+    team = member["team"]
+    tasks_today = get_user_tasks(team, today_only=True)
+    tasks_overdue = [t for t in get_user_tasks(team) if t["days"] > 0]
+    
+    if tasks_today:
+        send_message(chat_id, f"📅 <b>کارهای امروز ({len(tasks_today)} تسک):</b>")
+        for t in tasks_today:
+            msg = f"<b>{t['title']}</b>\n📅 {t['date_fa']}{t['time_part']}{t['days_text']}"
+            buttons = [[{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}]]
+            send_buttons(chat_id, msg, buttons)
+    
+    if tasks_overdue:
+        random_msg = get_random_message()
+        send_message(chat_id, random_msg)
+        send_message(chat_id, f"⚠️ <b>تسک‌های عقب افتاده ({len(tasks_overdue)} تسک):</b>")
+        for t in tasks_overdue:
+            msg = f"<b>{t['title']}</b>\n📅 {t['date_fa']}{t['time_part']}{t['days_text']}"
+            buttons = [
+                [{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}],
+                [{"text": "نه هنوز ⏰", "callback_data": f"notyet|{t['task_id']}"}]
+            ]
+            send_buttons(chat_id, msg, buttons)
+    
+    if not tasks_today and not tasks_overdue:
+        send_message(chat_id, "تسک انجام نشده‌ای نداری! فوق‌العاده‌ای 🔥✅")
+
 # ------------------- هندلر webhook -------------------
 def process_update(update):
     if "message" not in update:
-        # هندل callback
         if "callback_query" in update:
             cb = update["callback_query"]
             data = cb.get("data", "")
             chat_id = cb["message"]["chat"]["id"]
-            message_id = cb["message"]["message_id"]
             if data.startswith("done|"):
                 task_id = data.split("|")[1]
                 if mark_task_done(task_id):
@@ -114,7 +159,6 @@ def process_update(update):
                     send_message(chat_id, "تسک پیدا نشد!")
             elif data.startswith("notyet|"):
                 send_message(chat_id, "اوکی، بعداً یادآوری می‌کنم ⏰")
-            # می‌تونی message edit کنی اگر بخوای
         return
 
     message = update["message"]
@@ -145,20 +189,8 @@ def process_update(update):
                 buttons = [[{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}]]
                 send_buttons(chat_id, msg, buttons)
 
-    elif text == "تسک های انجام نشده":
-        tasks = get_user_tasks(team)
-        if not tasks:
-            send_message(chat_id, "تسک انجام نشده‌ای نداری! فوق‌العاده‌ای 🔥✅")
-        else:
-            random_msg = get_random_message()
-            send_message(chat_id, random_msg)
-            send_message(chat_id, f"⚠️ <b>تسک‌های عقب افتاده ({len(tasks)} تسک):</b>")
-            for t in tasks:
-                msg = f"<b>{t['title']}</b>\n📅 {t['date_fa']}{t['time_part']}{t['days_text']}"
-                buttons = [
-                    [{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}],
-                    [{"text": "نه هنوز ⏰", "callback_data": f"notyet|{t['task_id']}"}]
-                ]
-                send_buttons(chat_id, msg, buttons)
+    elif text == "لیست کارهای هفته":
+        send_week(chat_id)
 
-# برای scheduler اگر لازم شد send_week و send_pending رو هم می‌تونی مشابه این فرمت کنی
+    elif text == "تسک های انجام نشده":
+        send_pending(chat_id)
