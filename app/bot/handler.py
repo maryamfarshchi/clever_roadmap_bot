@@ -9,21 +9,20 @@ from bot.helpers import send_message, send_buttons
 from bot.keyboards import main_keyboard
 from core.members import find_member, add_member_if_not_exists
 
-# تنظیمات
-WORKSHEET_TASKS = "Tasks"
-COL_TASKID = 0
-COL_TEAM = 1
-COL_DATE_EN = 2
-COL_DATE_FA = 3
-COL_TIME = 5
-COL_TITLE = 6
-COL_STATUS = 9
-COL_DONE = 18
+# تنظیمات دقیق ایندکس ستون‌ها (بر اساس شیت Tasks)
+COL_TASKID = 0   # A
+COL_TEAM = 1     # B
+COL_DATE_EN = 2  # C
+COL_DATE_FA = 3  # D
+COL_TIME = 5     # F
+COL_TITLE = 6    # G  <--- این مهمه! عنوان تسک
+COL_STATUS = 9   # J
+COL_DONE = 18    # S
 
 IRAN_TZ = pytz.timezone("Asia/Tehran")
 
 def _get_tasks_rows():
-    rows = get_sheet(WORKSHEET_TASKS)
+    rows = get_sheet("Tasks")
     if not rows or len(rows) < 2:
         return []
     return rows
@@ -31,16 +30,12 @@ def _get_tasks_rows():
 def parse_date(date_str):
     if not date_str:
         return None
-    date_str = str(date_str).strip()
-    # پاک کردن کاراکترهای RTL و Z
-    date_str = date_str.replace("\u200e", "").replace("\u200f", "").replace("\u202a", "").replace("Z", "+00:00")
+    date_str = str(date_str).strip().replace("\u200e", "").replace("\u200f", "").replace("\u202a", "")
     try:
-        # اول سعی با فرمت MM/DD/YYYY
         return datetime.strptime(date_str, "%m/%d/%Y")
     except:
         try:
-            # fallback هوشمند برای فرمت‌های ISO یا هرچی
-            return parser.parse(date_str)
+            return parser.parse(date_str, dayfirst=False)
         except:
             return None
 
@@ -48,15 +43,13 @@ def get_days_overdue(date_str):
     due = parse_date(date_str)
     if not due:
         return 0
-    # تبدیل به timezone ایران
-    if due.tzinfo is None:
-        due = pytz.utc.localize(due)
-    due = due.astimezone(IRAN_TZ)
     today = datetime.now(IRAN_TZ).date()
     return (today - due.date()).days
 
 def is_task_done(row):
-    done = str(row[COL_DONE]).strip().upper() if len(row) > COL_DONE else ""
+    if len(row) <= COL_DONE:
+        return False
+    done = str(row[COL_DONE]).strip().upper()
     status = str(row[COL_STATUS]).strip().lower() if len(row) > COL_STATUS else ""
     return done == "YES" or any(k in status for k in ["done", "yes", "انجام شد", "تحویل"])
 
@@ -73,13 +66,16 @@ def get_user_tasks(team, today_only=False):
             continue
         if today_only and days != 0:
             continue
+        title = str(row[COL_TITLE]).strip() if len(row) > COL_TITLE else "بدون عنوان"
+        date_fa = str(row[COL_DATE_FA]).strip() if len(row) > COL_DATE_FA else ""
         time_str = str(row[COL_TIME]).strip() if len(row) > COL_TIME else ""
         time_part = f" ⏰ {time_str}" if time_str else ""
         days_text = " (امروز)" if days == 0 else f" ({days} روز گذشته)" if days > 0 else ""
+        task_id = str(row[COL_TASKID]).strip()
         tasks.append({
-            "task_id": str(row[COL_TASKID]).strip(),
-            "title": str(row[COL_TITLE]).strip(),
-            "date_fa": str(row[COL_DATE_FA]).strip(),
+            "task_id": task_id,
+            "title": title,
+            "date_fa": date_fa,
             "time_part": time_part,
             "days_text": days_text,
             "days": days
@@ -90,14 +86,14 @@ def mark_task_done(task_id):
     rows = _get_tasks_rows()
     for i, row in enumerate(rows[1:], start=2):
         if str(row[COL_TASKID]).strip() == task_id:
-            update_cell(WORKSHEET_TASKS, i, COL_STATUS + 1, "Done")
-            update_cell(WORKSHEET_TASKS, i, COL_DONE + 1, "YES")
+            update_cell("Tasks", i, COL_STATUS + 1, "Done")
+            update_cell("Tasks", i, COL_DONE + 1, "YES")
             return True
     return False
 
-# ------------------- توابع scheduler -------------------
+# ------------------- scheduler -------------------
 def send_week(chat_id, user_info=None):
-    send_message(chat_id, "لیست کارهای هفته هنوز پیاده‌سازی نشده، اگر خواستی اضافه می‌کنم!")
+    send_message(chat_id, "لیست کارهای هفته هنوز آماده نیست، اگر خواستی اضافه می‌کنم!")
 
 def send_pending(chat_id, user_info=None):
     member = find_member(chat_id)
