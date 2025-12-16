@@ -13,29 +13,17 @@ from scheduler.job import run_weekly_jobs, run_daily_jobs
 
 app = FastAPI()
 
-
-# -------------------------------------------------
-#   TELEGRAM WEBHOOK ENDPOINT
-# -------------------------------------------------
+# TELEGRAM WEBHOOK ENDPOINT
 @app.post("/webhook")
 async def webhook(request: Request):
-    """
-    این آدرس را در BotFather به عنوان webhook ست می‌کنی.
-    هر آپدیت تلگرام می‌آید اینجا و می‌رود داخل process_update.
-    """
     try:
         data = await request.json()
         process_update(data)
     except Exception as e:
         print("WEBHOOK ERROR:", str(e))
-
     return {"ok": True}
 
-
-# -------------------------------------------------
-#   JOB: اجرای هفتگی (برای کرون رندر یا هر کرون دیگر)
-#   مثلاً شنبه ساعت 9 صبح
-# -------------------------------------------------
+# JOB: اجرای هفتگی (برای کرون رندر)
 @app.post("/run/weekly")
 async def run_weekly():
     try:
@@ -45,11 +33,7 @@ async def run_weekly():
         print("WEEKLY JOB ERROR:", e)
         return {"ok": False, "error": str(e)}
 
-
-# -------------------------------------------------
-#   JOB: اجرای روزانه (برای PRE2 / DUE / OVR / ESC)
-#   هر روز ساعت 9
-# -------------------------------------------------
+# JOB: اجرای روزانه
 @app.post("/run/daily")
 async def run_daily():
     try:
@@ -59,10 +43,7 @@ async def run_daily():
         print("DAILY JOB ERROR:", e)
         return {"ok": False, "error": str(e)}
 
-
-# -------------------------------------------------
-#   ROOT CHECK
-# -------------------------------------------------
+# ROOT CHECK
 @app.get("/")
 async def root():
     return {
