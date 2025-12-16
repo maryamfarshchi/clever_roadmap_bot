@@ -6,7 +6,7 @@ from core.sheets import get_sheet, append_row, update_cell
 def _normalize(s):
     return str(s or "").strip()
 
-# پیدا کردن عضو – اصلاح کامل برای پیدا کردن درست chat_id
+# پیدا کردن عضو – اصلاح کامل برای ستون "chatid" (با c کوچک)
 def find_member(chat_id):
     rows = get_sheet("members")
     if not rows or len(rows) < 2:
@@ -16,11 +16,9 @@ def find_member(chat_id):
     for row in rows[1:]:
         if len(row) == 0:
             continue
-        row_chat_id = _normalize(row[0])
+        row_chat_id = _normalize(row[0])  # ستون اول "chatid"
         if row_chat_id == chat_id_str:
-            team = _normalize(row[3]) if len(row) > 3 else ""
-            if not team:
-                team = "Digital"  # fallback برای تو
+            team = _normalize(row[3]) if len(row) > 3 else "Digital"  # fallback
             return {
                 "chat_id": row_chat_id,
                 "name": _normalize(row[1]) if len(row) > 1 else "",
@@ -40,9 +38,9 @@ def add_member_if_not_exists(chat_id, name, username):
         str(chat_id).strip(),
         name or "",
         username or "",
-        "",   # team
-        "",   # customname
-        "No", # welcomed
+        "Digital",   # تیم پیش‌فرض برای تو
+        "",   
+        "No", 
     ]
 
     append_row("members", row)
@@ -55,7 +53,7 @@ def mark_welcomed(chat_id):
 
     chat_str = str(chat_id).strip()
     for idx, row in enumerate(rows[1:]):
-        if len(row) > 0 and str(row[0]).strip() == chat_str:
+        if len(row) > 0 and _normalize(row[0]) == chat_str:
             row_index = idx + 2
             update_cell("members", row_index, 6, "Yes")
             break
