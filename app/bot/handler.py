@@ -7,10 +7,12 @@ import pytz
 from core.sheets import get_sheet, update_cell
 from bot.helpers import send_message, send_buttons
 from bot.keyboards import main_keyboard
-from core.members import find_member, add_member_if_not_exists
+from core.members import find_member, add_member_if_not_exists, get_members_by_team
+from core.state import get_user_state, set_user_state, clear_user_state
 
 # تنظیمات
 WORKSHEET_TASKS = "Tasks"
+WORKSHEET_MEMBERS = "members"
 COL_TASKID = 0
 COL_TEAM = 1
 COL_DATE_EN = 2
@@ -92,6 +94,25 @@ def mark_task_done(task_id):
             return True
     return False
 
+# دکمه انتخاب تیم
+def team_selection_keyboard():
+    buttons = [
+        [{"text": "Production", "callback_data": "team|Production"}],
+        [{"text": "Ai Production", "callback_data": "team|Ai Production"}],
+        [{"text": "Digital", "callback_data": "team|Digital"}]
+    ]
+    return buttons
+
+# ذخیره تیم در شیت members
+def save_team_to_sheet(chat_id, team):
+    rows = get_sheet(WORKSHEET_MEMBERS)
+    chat_id_str = str(chat_id).strip()
+    for i, row in enumerate(rows[1:], start=2):
+        if len(row) > 0 and str(row[0]).strip() == chat_id_str:
+            update_cell(WORKSHEET_MEMBERS, i, 4, team)  # ستون team (D = ایندکس 3 +1 = 4)
+            return True
+    return False
+
 # ------------------- scheduler -------------------
 def send_week(chat_id, user_info=None):
     member = find_member(chat_id)
@@ -152,6 +173,15 @@ def process_update(update):
                     send_message(chat_id, "تسک پیدا نشد!")
             elif data.startswith("notyet|"):
                 send_message(chat_id, "اوکی، بعداً یادآوری می‌کنم ⏰")
+            elif data.startswith("team|"):
+                team = data.split("|")[1]
+                if save_team_to_sheet(chat_id, team):
+                    send_message(chat_id, f"تیم شما {team} ثبت شد! 👍")
+                    clear_user_state(chat_id)
+                    # حالا لیست تسک‌ها رو بفرست
+                    send_pending(chat_id)
+                else:
+                    send_message(chat_id, "خطا در ثبت تیم! با ادمین تماس بگیر.")
         return
 
     message = update["message"]
@@ -163,20 +193,18 @@ def process_update(update):
 
     member = find_member(chat_id)
     team = member["team"] if member and member.get("team") else None
-    if not team:
-        # fallback نهایی برای تو و همه کاربران
-        rows = get_sheet("members")
-        chat_id_str = str(chat_id).strip()
-        for row in rows[1:]:
-            if len(row) > 0 and _normalize(row[0]) == chat_id_str:
-                team = _normalize(row[3]) if len(row) > 3 and row[3] else "Digital"
-                break
-        if not team:
-            send_message(chat_id, "تیم شما ثبت نشده! با ادمین تماس بگیر.")
-            return
 
-    # بقیه کد handler همون قبلی (لیست کارهای امروز و تسک های انجام نشده)
-    # ...
+    state = get_user_state(chat_id)
+    if state.get("step") == "waiting_for_team":
+        # اگر در مرحله انتخاب تیم بود، منتظر callback باشه
+        return
+
+    if not team:
+        set_user_state(chat_id, step="waiting_for_team")
+        send_message(chat_id, "تیم شما ثبت نشده! لطفاً تیم خودتون رو انتخاب کنید:")
+        buttons = team_selection_keyboard()
+        send_buttons(chat_id, "تیمت چیه؟", buttons)
+        return
 
     if text in ["/start", "منوی اصلی"]:
         send_message(chat_id, "سلام! خوش برگشتی 👋", main_keyboard())
@@ -197,4 +225,3 @@ def process_update(update):
 
     elif text == "تسک های انجام نشده":
         send_pending(chat_id)
-
