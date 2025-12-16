@@ -6,7 +6,6 @@ from bot.handler import send_week, send_pending
 
 TEAMS = ["production", "ai production", "digital"]
 
-# اجرای هفتگی
 def run_weekly_jobs():
     for team in TEAMS:
         members = get_members_by_team(team)
@@ -17,7 +16,6 @@ def run_weekly_jobs():
             except Exception as e:
                 print("[WEEKLY ERROR]", team, user.get("chat_id"), str(e))
 
-# اجرای روزانه (هر روز ساعت ۹ صبح)
 def run_daily_jobs():
     for team in TEAMS:
         members = get_members_by_team(team)
