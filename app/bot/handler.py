@@ -9,20 +9,21 @@ from bot.helpers import send_message, send_buttons
 from bot.keyboards import main_keyboard
 from core.members import find_member, add_member_if_not_exists
 
-# تنظیمات دقیق ایندکس ستون‌ها (بر اساس شیت Tasks)
-COL_TASKID = 0   # A
-COL_TEAM = 1     # B
-COL_DATE_EN = 2  # C
-COL_DATE_FA = 3  # D
-COL_TIME = 5     # F
-COL_TITLE = 6    # G  <--- این مهمه! عنوان تسک
-COL_STATUS = 9   # J
-COL_DONE = 18    # S
+# تنظیمات
+WORKSHEET_TASKS = "Tasks"
+COL_TASKID = 0
+COL_TEAM = 1
+COL_DATE_EN = 2
+COL_DATE_FA = 3
+COL_TIME = 5
+COL_TITLE = 6
+COL_STATUS = 9
+COL_DONE = 18
 
 IRAN_TZ = pytz.timezone("Asia/Tehran")
 
 def _get_tasks_rows():
-    rows = get_sheet("Tasks")
+    rows = get_sheet(WORKSHEET_TASKS)
     if not rows or len(rows) < 2:
         return []
     return rows
@@ -47,18 +48,16 @@ def get_days_overdue(date_str):
     return (today - due.date()).days
 
 def is_task_done(row):
-    if len(row) <= COL_DONE:
-        return False
-    done = str(row[COL_DONE]).strip().upper()
+    done = str(row[COL_DONE]).strip().upper() if len(row) > COL_DONE else ""
     status = str(row[COL_STATUS]).strip().lower() if len(row) > COL_STATUS else ""
     return done == "YES" or any(k in status for k in ["done", "yes", "انجام شد", "تحویل"])
-
 
 def get_user_tasks(team, today_only=False):
     rows = _get_tasks_rows()
     tasks = []
+    team_lower = team.lower()  # برای مقایسه case insensitive
     for row in rows[1:]:
-        if len(row) <= COL_TEAM or str(row[COL_TEAM]).strip().lower() != team.lower():  # <--- اصلاح شده
+        if len(row) <= COL_TEAM or str(row[COL_TEAM]).strip().lower() != team_lower:  # اصلاح شده
             continue
         if is_task_done(row):
             continue
@@ -83,20 +82,30 @@ def get_user_tasks(team, today_only=False):
         })
     return tasks
 
-
-
 def mark_task_done(task_id):
     rows = _get_tasks_rows()
     for i, row in enumerate(rows[1:], start=2):
         if str(row[COL_TASKID]).strip() == task_id:
-            update_cell("Tasks", i, COL_STATUS + 1, "Done")
-            update_cell("Tasks", i, COL_DONE + 1, "YES")
+            update_cell(WORKSHEET_TASKS, i, COL_STATUS + 1, "Done")
+            update_cell(WORKSHEET_TASKS, i, COL_DONE + 1, "YES")
             return True
     return False
 
 # ------------------- scheduler -------------------
 def send_week(chat_id, user_info=None):
-    send_message(chat_id, "لیست کارهای هفته هنوز آماده نیست، اگر خواستی اضافه می‌کنم!")
+    member = find_member(chat_id)
+    if not member or not member.get("team"):
+        return
+    team = member["team"]
+    tasks = get_user_tasks(team)
+    if not tasks:
+        send_message(chat_id, "این هفته کاری نداری! استراحت کن 😎👍")
+    else:
+        send_message(chat_id, f"📋 <b>کارهای این هفته ({len(tasks)} تسک):</b>")
+        for t in tasks:
+            msg = f"<b>{t['title']}</b>\n📅 {t['date_fa']}{t['time_part']}{t['days_text']}"
+            buttons = [[{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}]]
+            send_buttons(chat_id, msg, buttons)
 
 def send_pending(chat_id, user_info=None):
     member = find_member(chat_id)
@@ -177,4 +186,3 @@ def process_update(update):
 
     elif text == "تسک های انجام نشده":
         send_pending(chat_id)
-
