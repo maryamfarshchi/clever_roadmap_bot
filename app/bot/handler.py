@@ -25,9 +25,7 @@ IRAN_TZ = pytz.timezone("Asia/Tehran")
 def _get_tasks_rows():
     rows = get_sheet(WORKSHEET_TASKS)
     if not rows or len(rows) < 2:
-        print("[DEBUG] Tasks sheet empty or error - rows:", len(rows) if rows else 0)
         return []
-    print(f"[DEBUG] Tasks loaded successfully - rows: {len(rows)}")
     return rows
 
 def parse_date(date_str):
@@ -57,11 +55,9 @@ def is_task_done(row):
 def get_user_tasks(team, today_only=False):
     rows = _get_tasks_rows()
     tasks = []
-    team_lower = team.lower()
-    print(f"[DEBUG] Searching for team: {team} (lower: {team_lower})")
+    team_lower = team.lower() if team else "digital"
     for row in rows[1:]:
         row_team = str(row[COL_TEAM]).strip().lower() if len(row) > COL_TEAM else ""
-        print(f"[DEBUG] Row team (lower): {row_team}")
         if row_team != team_lower:
             continue
         if is_task_done(row):
@@ -85,7 +81,6 @@ def get_user_tasks(team, today_only=False):
             "days_text": days_text,
             "days": days
         })
-    print(f"[DEBUG] Found {len(tasks)} tasks for team {team}")
     return tasks
 
 def mark_task_done(task_id):
@@ -99,10 +94,7 @@ def mark_task_done(task_id):
 
 # ------------------- scheduler -------------------
 def send_week(chat_id, user_info=None):
-    member = find_member(chat_id)
-    if not member or not member.get("team"):
-        return
-    team = member["team"]
+    team = "Digital"  # پیشفرض
     tasks = get_user_tasks(team)
     if not tasks:
         send_message(chat_id, "این هفته کاری نداری! استراحت کن 😎👍")
@@ -114,10 +106,7 @@ def send_week(chat_id, user_info=None):
             send_buttons(chat_id, msg, buttons)
 
 def send_pending(chat_id, user_info=None):
-    member = find_member(chat_id)
-    if not member or not member.get("team"):
-        return
-    team = member["team"]
+    team = "Digital"  # پیشفرض
     tasks_today = get_user_tasks(team, today_only=True)
     tasks_overdue = [t for t in get_user_tasks(team) if t["days"] > 0]
     
@@ -166,15 +155,8 @@ def process_update(update):
 
     add_member_if_not_exists(chat_id, user.get("first_name"), user.get("username"))
 
-member = find_member(chat_id)
-team = member.get("team") if member else "Digital"  # اگر پیدا نشد یا team خالی بود، پیشفرض Digital
-
-# اگر می‌خوای کاربر جدید رو هم اضافه کنی (اختیاری)
-if not member:
-    add_member_if_not_exists(chat_id, user.get("first_name"), user.get("username"))
-    team = "Digital"  # پیشفرض
-
-# پیام "ثبت نشده" رو کامل حذف کردیم – مستقیم می‌ره سراغ تسک‌ها
+    member = find_member(chat_id)
+    team = member["team"] if member and member.get("team") else "Digital"  # پیشفرض Digital اگر خالی یا پیدا نشد
 
     if text in ["/start", "منوی اصلی"]:
         send_message(chat_id, "سلام! خوش برگشتی 👋", main_keyboard())
@@ -195,4 +177,3 @@ if not member:
 
     elif text == "تسک های انجام نشده":
         send_pending(chat_id)
-
