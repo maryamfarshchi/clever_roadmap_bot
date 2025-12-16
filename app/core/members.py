@@ -1,7 +1,7 @@
 # app/core/members.py
 # -*- coding: utf-8 -*-
 
-from core.sheets import get_sheet, append_row, update_cell
+from core.sheets import get_sheet, append_row
 
 def _normalize(s):
     return str(s or "").strip().lower()
@@ -14,13 +14,13 @@ def find_member(chat_id):
         return None
 
     body = rows[1:]
-    chat_id_str = str(chat_id).strip()  # همیشه str
+    chat_id_str = str(chat_id).strip()
 
     for row in body:
         if not row:
             continue
 
-        row_chat_id = str(row[0]).strip() if len(row) > 0 else ""
+        row_chat_id = str(row[0]).strip()
         if row_chat_id == chat_id_str:
             return {
                 "chat_id": row_chat_id,
@@ -31,6 +31,13 @@ def find_member(chat_id):
                 "welcomed": row[5] if len(row) > 5 else "",
             }
     return None
+
+# اضافه کردن کاربر جدید اگر وجود نداشته باشه
+def add_member_if_not_exists(chat_id, name, username):
+    if find_member(chat_id):
+        return  # قبلاً وجود داره
+    row = [str(chat_id), name or "", username or "", "Digital", name or "", "Yes"]  # تیم پیشفرض Digital
+    append_row("members", row)
 
 def get_members_by_team(team):
     rows = get_sheet("members")
