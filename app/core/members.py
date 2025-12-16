@@ -4,30 +4,30 @@
 from core.sheets import get_sheet, append_row, update_cell
 
 def _normalize(s):
-    return str(s or "").strip().lower()
+    return str(s or "").strip()
 
-# پیدا کردن عضو (اصلاح‌شده برای پیدا کردن درست chat_id)
+# پیدا کردن عضو – اصلاح کامل برای پیدا کردن درست chat_id
 def find_member(chat_id):
     rows = get_sheet("members")
     if not rows or len(rows) < 2:
         return None
 
-    chat_id_str = str(chat_id).strip()  # همیشه str کن
+    chat_id_str = _normalize(chat_id)
     for row in rows[1:]:
-        if len(row) < 1:
+        if len(row) == 0:
             continue
-        row_chat_id = str(row[0]).strip()
+        row_chat_id = _normalize(row[0])
         if row_chat_id == chat_id_str:
-            team = row[3].strip() if len(row) > 3 else ""
-            if not team:  # اگر تیم خالی بود، fallback
-                team = "Digital"  # یا تیم پیش‌فرض، بعداً تغییر بده
+            team = _normalize(row[3]) if len(row) > 3 else ""
+            if not team:
+                team = "Digital"  # fallback برای تو
             return {
                 "chat_id": row_chat_id,
-                "name": row[1].strip() if len(row) > 1 else "",
-                "username": row[2].strip() if len(row) > 2 else "",
+                "name": _normalize(row[1]) if len(row) > 1 else "",
+                "username": _normalize(row[2]) if len(row) > 2 else "",
                 "team": team,
-                "customname": row[4].strip() if len(row) > 4 else "",
-                "welcomed": row[5].strip() if len(row) > 5 else "",
+                "customname": _normalize(row[4]) if len(row) > 4 else "",
+                "welcomed": _normalize(row[5]) if len(row) > 5 else "",
             }
     return None
 
@@ -37,7 +37,7 @@ def add_member_if_not_exists(chat_id, name, username):
         return
 
     row = [
-        str(chat_id),
+        str(chat_id).strip(),
         name or "",
         username or "",
         "",   # team
@@ -73,8 +73,8 @@ def get_members_by_team(team):
         if len(row) < 4:
             continue
 
-        row_team = row[3]
-        if _normalize(row_team) != team_norm:
+        row_team = _normalize(row[3])
+        if row_team != team_norm:
             continue
 
         chat_id_raw = str(row[0]).strip()
@@ -85,11 +85,11 @@ def get_members_by_team(team):
 
         members.append({
             "chat_id": chat_id,
-            "name": row[1] if len(row) > 1 else "",
-            "username": row[2] if len(row) > 2 else "",
+            "name": _normalize(row[1]),
+            "username": _normalize(row[2]),
             "team": row_team,
-            "customname": row[4] if len(row) > 4 else "",
-            "welcomed": row[5] if len(row) > 5 else "",
+            "customname": _normalize(row[4]) if len(row) > 4 else "",
+            "welcomed": _normalize(row[5]) if len(row) > 5 else "",
         })
 
     return members
