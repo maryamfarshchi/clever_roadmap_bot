@@ -164,12 +164,12 @@ def process_update(update):
     member = find_member(chat_id)
     team = member["team"] if member and member.get("team") else None
     if not team:
-        # fallback قوی برای تو (مریم) و کاربرانی که در شیت هستن
+        # fallback قوی برای پیدا کردن تیم (حتی اگر find_member مشکل داشته باشه)
         rows = get_sheet("members")
         chat_id_str = str(chat_id).strip()
         for row in rows[1:]:
             if len(row) > 0 and str(row[0]).strip() == chat_id_str:
-                team = row[3].strip() if len(row) > 3 and row[3].strip() else "Digital"  # fallback به Digital
+                team = str(row[3]).strip() if len(row) > 3 and row[3] else "Digital"
                 break
         if not team:
             send_message(chat_id, "تیم شما ثبت نشده! با ادمین تماس بگیر.")
