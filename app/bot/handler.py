@@ -48,20 +48,24 @@ def get_days_overdue(date_str):
     return (today - due.date()).days
 
 def is_task_done(row):
-    done = str(row[COL_DONE]).strip().upper() if len(row) > COL_DONE else ""
+    if len(row) <= COL_DONE:
+        return False
+    done = str(row[COL_DONE]).strip().upper()
+    if done == "YES" or done == "Y":
+        return True
     status = str(row[COL_STATUS]).strip().lower() if len(row) > COL_STATUS else ""
-    return done == "YES" or any(k in status for k in ["done", "yes", "انجام شد", "تحویل"])
+    if "done" in status or "yes" in status or "انجام شد" in status or "تحویل" in status:
+        return True
+    return False  # فقط اگر واقعاً Done = YES یا Status شامل "done" باشه، انجام شده حساب کن
 
 def get_user_tasks(team, today_only=False):
     rows = _get_tasks_rows()
     tasks = []
-    team_lower = team.lower() if team else "digital"
     for row in rows[1:]:
-        row_team = str(row[COL_TEAM]).strip().lower() if len(row) > COL_TEAM else ""
-        if row_team != team_lower:
+        if len(row) <= COL_TEAM or str(row[COL_TEAM]).strip() != team:
             continue
         if is_task_done(row):
-            continue
+            continue  # فقط تسک‌های واقعاً انجام شده skip بشن
         days = get_days_overdue(row[COL_DATE_EN])
         if days < 0:
             continue
@@ -94,7 +98,10 @@ def mark_task_done(task_id):
 
 # ------------------- scheduler -------------------
 def send_week(chat_id, user_info=None):
-    team = "Digital"  # پیشفرض
+    member = find_member(chat_id)
+    if not member or not member.get("team"):
+        return
+    team = member["team"]
     tasks = get_user_tasks(team)
     if not tasks:
         send_message(chat_id, "این هفته کاری نداری! استراحت کن 😎👍")
@@ -106,7 +113,10 @@ def send_week(chat_id, user_info=None):
             send_buttons(chat_id, msg, buttons)
 
 def send_pending(chat_id, user_info=None):
-    team = "Digital"  # پیشفرض
+    member = find_member(chat_id)
+    if not member or not member.get("team"):
+        return
+    team = member["team"]
     tasks_today = get_user_tasks(team, today_only=True)
     tasks_overdue = [t for t in get_user_tasks(team) if t["days"] > 0]
     
@@ -156,7 +166,11 @@ def process_update(update):
     add_member_if_not_exists(chat_id, user.get("first_name"), user.get("username"))
 
     member = find_member(chat_id)
-    team = member["team"] if member and member.get("team") else "Digital"  # پیشفرض Digital اگر خالی یا پیدا نشد
+    if not member or not member.get("team"):
+        send_message(chat_id, "تیم شما ثبت نشده! با ادمین تماس بگیر.")
+        return
+
+    team = member["team"]
 
     if text in ["/start", "منوی اصلی"]:
         send_message(chat_id, "سلام! خوش برگشتی 👋", main_keyboard())
