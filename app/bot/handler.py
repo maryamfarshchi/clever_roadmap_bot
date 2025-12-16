@@ -25,6 +25,7 @@ IRAN_TZ = pytz.timezone("Asia/Tehran")
 def _get_tasks_rows():
     rows = get_sheet(WORKSHEET_TASKS)
     if not rows or len(rows) < 2:
+        print("[DEBUG] Tasks sheet empty or error")
         return []
     return rows
 
@@ -55,7 +56,7 @@ def is_task_done(row):
 def get_user_tasks(team, today_only=False):
     rows = _get_tasks_rows()
     tasks = []
-    team_lower = team.lower()  # برای مقایسه case insensitive
+    team_lower = team.lower()  # case insensitive
     for row in rows[1:]:
         if len(row) <= COL_TEAM or str(row[COL_TEAM]).strip().lower() != team_lower:  # اصلاح شده
             continue
