@@ -13,7 +13,7 @@ from scheduler.job import run_weekly_jobs, run_daily_jobs
 
 app = FastAPI()
 
-# TELEGRAM WEBHOOK ENDPOINT
+# WEBHOOK ENDPOINT (POST + GET برای تست)
 @app.post("/webhook")
 async def webhook(request: Request):
     try:
@@ -23,7 +23,11 @@ async def webhook(request: Request):
         print("WEBHOOK ERROR:", str(e))
     return {"ok": True}
 
-# JOB: اجرای هفتگی (برای کرون رندر)
+@app.get("/webhook")
+async def webhook_get():
+    return {"status": "Webhook endpoint active", "method": "GET"}
+
+# JOB: اجرای هفتگی
 @app.post("/run/weekly")
 async def run_weekly():
     try:
