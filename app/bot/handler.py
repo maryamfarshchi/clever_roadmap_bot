@@ -25,21 +25,19 @@ IRAN_TZ = pytz.timezone("Asia/Tehran")
 def _get_tasks_rows():
     rows = get_sheet(WORKSHEET_TASKS)
     if not rows or len(rows) < 2:
-        print("[DEBUG] Tasks sheet empty or error")
         return []
     return rows
 
 def parse_date(date_str):
-    if not date_str or not str(date_str).strip():
+    if not date_str:
         return None
     date_str = str(date_str).strip().replace("\u200e", "").replace("\u200f", "").replace("\u202a", "")
     try:
         return datetime.strptime(date_str, "%m/%d/%Y")
-    except ValueError:
+    except:
         try:
             return parser.parse(date_str, dayfirst=False)
-        except ValueError:
-            print(f"[DEBUG] Failed to parse date: {date_str}")
+        except:
             return None
 
 def get_days_overdue(date_str):
@@ -65,7 +63,7 @@ def get_user_tasks(team, today_only=False):
         if is_task_done(row):
             continue
         days = get_days_overdue(row[COL_DATE_EN])
-        if days < 0:  # آینده
+        if days < 0:
             continue
         if today_only and days != 0:
             continue
@@ -83,7 +81,6 @@ def get_user_tasks(team, today_only=False):
             "days_text": days_text,
             "days": days
         })
-    print(f"[DEBUG] Found {len(tasks)} tasks for team {team}")
     return tasks
 
 def mark_task_done(task_id):
@@ -99,7 +96,6 @@ def mark_task_done(task_id):
 def send_week(chat_id, user_info=None):
     member = find_member(chat_id)
     if not member or not member.get("team"):
-        send_message(chat_id, "تیم شما ثبت نشده! با ادمین تماس بگیر.")
         return
     team = member["team"]
     tasks = get_user_tasks(team)
@@ -115,7 +111,6 @@ def send_week(chat_id, user_info=None):
 def send_pending(chat_id, user_info=None):
     member = find_member(chat_id)
     if not member or not member.get("team"):
-        send_message(chat_id, "تیم شما ثبت نشده! با ادمین تماس بگیر.")
         return
     team = member["team"]
     tasks_today = get_user_tasks(team, today_only=True)
@@ -148,7 +143,7 @@ def process_update(update):
         if "callback_query" in update:
             cb = update["callback_query"]
             data = cb.get("data", "")
-            chat_id = cb["from"]["id"]  # درست از from.id بگیر
+            chat_id = cb["message"]["chat"]["id"]
             if data.startswith("done|"):
                 task_id = data.split("|")[1]
                 if mark_task_done(task_id):
@@ -167,11 +162,18 @@ def process_update(update):
     add_member_if_not_exists(chat_id, user.get("first_name"), user.get("username"))
 
     member = find_member(chat_id)
-    if not member or not member.get("team"):
-        send_message(chat_id, "تیم شما ثبت نشده! با ادمین تماس بگیر.")
-        return
-
-    team = member["team"]
+    team = member["team"] if member and member.get("team") else None
+    if not team:
+        # fallback قوی برای تو (مریم) و کاربرانی که در شیت هستن
+        rows = get_sheet("members")
+        chat_id_str = str(chat_id).strip()
+        for row in rows[1:]:
+            if len(row) > 0 and str(row[0]).strip() == chat_id_str:
+                team = row[3].strip() if len(row) > 3 and row[3].strip() else "Digital"  # fallback به Digital
+                break
+        if not team:
+            send_message(chat_id, "تیم شما ثبت نشده! با ادمین تماس بگیر.")
+            return
 
     if text in ["/start", "منوی اصلی"]:
         send_message(chat_id, "سلام! خوش برگشتی 👋", main_keyboard())
