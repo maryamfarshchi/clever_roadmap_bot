@@ -53,11 +53,12 @@ def is_task_done(row):
     status = str(row[COL_STATUS]).strip().lower() if len(row) > COL_STATUS else ""
     return done == "YES" or any(k in status for k in ["done", "yes", "انجام شد", "تحویل"])
 
+
 def get_user_tasks(team, today_only=False):
     rows = _get_tasks_rows()
     tasks = []
     for row in rows[1:]:
-        if len(row) <= COL_TEAM or str(row[COL_TEAM]).strip() != team:
+        if len(row) <= COL_TEAM or str(row[COL_TEAM]).strip().lower() != team.lower():  # <--- اصلاح شده
             continue
         if is_task_done(row):
             continue
@@ -70,7 +71,7 @@ def get_user_tasks(team, today_only=False):
         date_fa = str(row[COL_DATE_FA]).strip() if len(row) > COL_DATE_FA else ""
         time_str = str(row[COL_TIME]).strip() if len(row) > COL_TIME else ""
         time_part = f" ⏰ {time_str}" if time_str else ""
-        days_text = " (امروز)" if days == 0 else f" ({days} روز گذشته)" if days > 0 else ""
+        days_text = " (امروز)" if days == 0 else f" ({days} روز گذشته)"
         task_id = str(row[COL_TASKID]).strip()
         tasks.append({
             "task_id": task_id,
@@ -81,6 +82,8 @@ def get_user_tasks(team, today_only=False):
             "days": days
         })
     return tasks
+
+
 
 def mark_task_done(task_id):
     rows = _get_tasks_rows()
@@ -174,3 +177,4 @@ def process_update(update):
 
     elif text == "تسک های انجام نشده":
         send_pending(chat_id)
+
