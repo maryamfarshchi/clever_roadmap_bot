@@ -1,8 +1,5 @@
+# app/bot/keyboards.py
 import json
-
-# ---------------------------
-#  منوی اصلی ثابت
-# ---------------------------
 
 def main_keyboard():
     keyboard = {
@@ -20,23 +17,17 @@ def main_keyboard():
     }
     return json.dumps(keyboard, ensure_ascii=False)
 
-
-# ---------------------------
-#  اگر بعداً خواستی منوهای مرحله‌ای بسازیم
-# ---------------------------
-
 def team_select_keyboard():
     keyboard = {
         "keyboard": [
             [{"text": "Production"}],
-            [{"text": "AI Production"}],
+            [{"text": "Ai Production"}],
             [{"text": "Digital"}],
             [{"text": "بازگشت ⬅️"}]
         ],
         "resize_keyboard": True
     }
     return json.dumps(keyboard, ensure_ascii=False)
-
 
 def back_keyboard():
     keyboard = {
