@@ -25,7 +25,7 @@ IRAN_TZ = pytz.timezone("Asia/Tehran")
 def _get_tasks_rows():
     rows = get_sheet(WORKSHEET_TASKS)
     if not rows or len(rows) < 2:
-        print("[DEBUG] Tasks sheet empty or error - rows:", len(rows) if rows else 0)
+        print("[DEBUG] Tasks sheet empty or error")
         return []
     print(f"[DEBUG] Tasks loaded: {len(rows)} rows")
     return rows
