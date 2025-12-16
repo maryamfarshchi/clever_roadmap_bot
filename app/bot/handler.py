@@ -166,12 +166,15 @@ def process_update(update):
 
     add_member_if_not_exists(chat_id, user.get("first_name"), user.get("username"))
 
-    member = find_member(chat_id)
-    if not member or not member.get("team"):
-        send_message(chat_id, "تیم شما ثبت نشده! با ادمین تماس بگیر.")
-        return
+member = find_member(chat_id)
+team = member.get("team") if member else "Digital"  # اگر پیدا نشد یا team خالی بود، پیشفرض Digital
 
-    team = member["team"]
+# اگر می‌خوای کاربر جدید رو هم اضافه کنی (اختیاری)
+if not member:
+    add_member_if_not_exists(chat_id, user.get("first_name"), user.get("username"))
+    team = "Digital"  # پیشفرض
+
+# پیام "ثبت نشده" رو کامل حذف کردیم – مستقیم می‌ره سراغ تسک‌ها
 
     if text in ["/start", "منوی اصلی"]:
         send_message(chat_id, "سلام! خوش برگشتی 👋", main_keyboard())
@@ -192,3 +195,4 @@ def process_update(update):
 
     elif text == "تسک های انجام نشده":
         send_pending(chat_id)
+
