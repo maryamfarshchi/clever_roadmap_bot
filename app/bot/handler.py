@@ -25,19 +25,21 @@ IRAN_TZ = pytz.timezone("Asia/Tehran")
 def _get_tasks_rows():
     rows = get_sheet(WORKSHEET_TASKS)
     if not rows or len(rows) < 2:
+        print("[DEBUG] Tasks sheet empty or error")
         return []
     return rows
 
 def parse_date(date_str):
-    if not date_str:
+    if not date_str or not str(date_str).strip():
         return None
     date_str = str(date_str).strip().replace("\u200e", "").replace("\u200f", "").replace("\u202a", "")
     try:
         return datetime.strptime(date_str, "%m/%d/%Y")
-    except:
+    except ValueError:
         try:
             return parser.parse(date_str, dayfirst=False)
-        except:
+        except ValueError:
+            print(f"[DEBUG] Failed to parse date: {date_str}")
             return None
 
 def get_days_overdue(date_str):
@@ -51,12 +53,8 @@ def is_task_done(row):
     if len(row) <= COL_DONE:
         return False
     done = str(row[COL_DONE]).strip().upper()
-    if done == "YES" or done == "Y":
-        return True
     status = str(row[COL_STATUS]).strip().lower() if len(row) > COL_STATUS else ""
-    if "done" in status or "yes" in status or "انجام شد" in status or "تحویل" in status:
-        return True
-    return False  # فقط اگر واقعاً Done = YES یا Status شامل "done" باشه، انجام شده حساب کن
+    return done == "YES" or any(k in status for k in ["done", "yes", "انجام شد", "تحویل"])
 
 def get_user_tasks(team, today_only=False):
     rows = _get_tasks_rows()
@@ -65,9 +63,9 @@ def get_user_tasks(team, today_only=False):
         if len(row) <= COL_TEAM or str(row[COL_TEAM]).strip() != team:
             continue
         if is_task_done(row):
-            continue  # فقط تسک‌های واقعاً انجام شده skip بشن
+            continue
         days = get_days_overdue(row[COL_DATE_EN])
-        if days < 0:
+        if days < 0:  # آینده
             continue
         if today_only and days != 0:
             continue
@@ -85,6 +83,7 @@ def get_user_tasks(team, today_only=False):
             "days_text": days_text,
             "days": days
         })
+    print(f"[DEBUG] Found {len(tasks)} tasks for team {team}")
     return tasks
 
 def mark_task_done(task_id):
@@ -100,6 +99,7 @@ def mark_task_done(task_id):
 def send_week(chat_id, user_info=None):
     member = find_member(chat_id)
     if not member or not member.get("team"):
+        send_message(chat_id, "تیم شما ثبت نشده! با ادمین تماس بگیر.")
         return
     team = member["team"]
     tasks = get_user_tasks(team)
@@ -115,6 +115,7 @@ def send_week(chat_id, user_info=None):
 def send_pending(chat_id, user_info=None):
     member = find_member(chat_id)
     if not member or not member.get("team"):
+        send_message(chat_id, "تیم شما ثبت نشده! با ادمین تماس بگیر.")
         return
     team = member["team"]
     tasks_today = get_user_tasks(team, today_only=True)
@@ -147,7 +148,7 @@ def process_update(update):
         if "callback_query" in update:
             cb = update["callback_query"]
             data = cb.get("data", "")
-            chat_id = cb["message"]["chat"]["id"]
+            chat_id = cb["from"]["id"]  # درست از from.id بگیر
             if data.startswith("done|"):
                 task_id = data.split("|")[1]
                 if mark_task_done(task_id):
