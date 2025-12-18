@@ -2,25 +2,19 @@
 # -*- coding: utf-8 -*-
 
 import logging
-from datetime import datetime
-import pytz
 import os
 
-IRAN_TZ = pytz.timezone("Asia/Tehran")
-
-# ساخت فولدر logs اگر وجود نداشت
 log_dir = 'app/logs'
-if not os.path.exists(log_dir):
-    os.makedirs(log_dir)
+os.makedirs(log_dir, exist_ok=True)
 
 logging.basicConfig(
-    filename=os.path.join(log_dir, 'bot.log'),  # مسیر کامل
+    filename=os.path.join(log_dir, 'bot.log'),
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-def log_info(msg):
+def log_info(msg: str):
     logging.info(msg)
 
-def log_error(msg):
+def log_error(msg: str):
     logging.error(msg)
