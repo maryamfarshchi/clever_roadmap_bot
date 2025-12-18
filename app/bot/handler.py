@@ -90,40 +90,30 @@ async def process_update(update):
                 await send_message(chat_id, f"شما به تیم {team} اضافه شدید! ✅")
                 await send_buttons(chat_id, "منوی اصلی:", main_keyboard())
         return
-
     message = update["message"]
     chat_id = message["chat"]["id"]
     text = message.get("text", "").strip()
-
     user_info = message.get("from", {})
     name = user_info.get("first_name", "کاربر")
     username = user_info.get("username", "")
-
     save_or_add_member(chat_id, name=name, username=username)
-
     member = find_member(chat_id)
     customname = member.get("customname", name)
-
     if text == "/start":
         if not member.get("welcomed"):
             welcome_msg = get_welcome_message(customname)
             await send_message(chat_id, welcome_msg)
             await update_cell("members", member["row"], 6, "Yes")
-
         if not member.get("team"):
             await send_message(chat_id, "شما ثبت نشدید! مال کدوم تیم هستید؟")
             await send_buttons(chat_id, "انتخاب تیم:", team_selection_keyboard())
         else:
             await send_buttons(chat_id, "منوی اصلی:", main_keyboard())
-
     elif text == "لیست کارهای امروز":
         await send_daily(chat_id)
-
     elif text == "لیست کارهای هفته":
         await send_week(chat_id)
-
     elif text == "تسک های انجام نشده":
         await send_pending(chat_id)
-
     else:
         await send_message(chat_id, "دستور نامعتبر! از منو استفاده کنید.")
