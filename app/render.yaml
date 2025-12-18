@@ -1,15 +1,27 @@
 services:
   - type: web
     name: clever-roadmap-bot
-    runtime: python
+    env: python
+    region: frankfurt
+    plan: starter
+    numInstances: 1
+
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port 10000
-    
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+
+    healthCheckPath: /
+
+    autoDeploy: true
+
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+
       - key: BOT_TOKEN
         sync: false
+
       - key: GOOGLE_API_URL
         sync: false
 
-    plan: starter
-    autoDeploy: true
+      - key: CACHE_TTL
+        value: "60"
