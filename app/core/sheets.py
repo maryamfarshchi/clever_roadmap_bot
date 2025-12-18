@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 
 import os
-import aiohttp  # برای async اگر لازم
+import aiohttp  # برای async
 from tenacity import retry, stop_after_attempt, wait_exponential
 from cachetools import TTLCache
 from core.config import CACHE_TTL
-from core.logging import log_error, log_info  # import logging
+from core.logging import log_error, log_info
 
 API = os.getenv("GOOGLE_API_URL", "").rstrip("/")
 cache = TTLCache(maxsize=10, ttl=CACHE_TTL)
