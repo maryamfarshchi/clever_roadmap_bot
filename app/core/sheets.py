@@ -9,19 +9,19 @@ from core.config import CACHE_TTL
 from core.logging import log_error
 
 API = os.getenv("GOOGLE_API_URL", "").rstrip("/")
-cache = TTLCache(maxsize=50, ttl=CACHE_TTL)
+cache = TTLCache(maxsize=100, ttl=CACHE_TTL)
 
-def _key(sheet: str) -> str:
+def _k(sheet: str) -> str:
     return f"sheet::{sheet}"
 
 def _invalidate(sheet: str):
-    k = _key(sheet)
+    k = _k(sheet)
     if k in cache:
         del cache[k]
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
 async def get_sheet(sheet: str):
-    k = _key(sheet)
+    k = _k(sheet)
     if k in cache:
         return cache[k]
 
@@ -31,11 +31,11 @@ async def get_sheet(sheet: str):
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{API}?sheet={sheet}", timeout=20) as response:
-                data = await response.json()
+            async with session.get(f"{API}?sheet={sheet}", timeout=20) as r:
+                data = await r.json()
                 rows = data.get("rows", [])
                 if not isinstance(rows, list):
-                    log_error(f"Sheet bad response: {data}")
+                    log_error(f"Bad sheet response: {data}")
                     return []
                 cache[k] = rows
                 return rows
@@ -54,8 +54,8 @@ async def update_cell(sheet: str, row: int, col: int, value):
                 f"{API}?sheet={sheet}&row={row}&col={col}",
                 json={"value": value},
                 timeout=20
-            ) as response:
-                data = await response.json()
+            ) as r:
+                data = await r.json()
                 ok = "error" not in data
                 if ok:
                     _invalidate(sheet)
@@ -75,8 +75,8 @@ async def append_row(sheet: str, row_data: list):
                 f"{API}?sheet={sheet}",
                 json={"row": row_data},
                 timeout=20
-            ) as response:
-                data = await response.json()
+            ) as r:
+                data = await r.json()
                 ok = "error" not in data
                 if ok:
                     _invalidate(sheet)
