@@ -12,24 +12,24 @@ async def load_messages():
     if not rows or len(rows) < 2:
         return []
     body = rows[1:]
-    messages = []
+    out = []
     for row in body:
-        msg_type = (row[0] if len(row) > 0 else "")
-        msg_text = (row[1] if len(row) > 1 else "")
-        if msg_type and msg_text:
-            messages.append({"type": str(msg_type).strip(), "text": str(msg_text)})
-    return messages
+        t = str(row[0]).strip() if len(row) > 0 else ""
+        txt = str(row[1]) if len(row) > 1 else ""
+        if t and txt:
+            out.append({"type": t, "text": txt})
+    return out
 
 async def get_random_message(msg_type, **kwargs):
-    all_msgs = await load_messages()
-    filtered = [m for m in all_msgs if m["type"] == msg_type]
-    if not filtered:
+    msgs = await load_messages()
+    pool = [m for m in msgs if m["type"] == msg_type]
+    if not pool:
         log_error(f"No messages for type {msg_type}")
         return "—"
-    chosen = random.choice(filtered)["text"]
+    text = random.choice(pool)["text"]
     for k, v in kwargs.items():
-        chosen = chosen.replace(f"{{{k}}}", str(v))
-    return chosen
+        text = text.replace(f"{{{k}}}", str(v))
+    return text
 
 async def get_welcome_message(name):
     return await get_random_message("welcome", name=name)
