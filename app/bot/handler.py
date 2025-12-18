@@ -1,178 +1,75 @@
 # app/bot/handler.py
+# -*- coding: utf-8 -*-
+
+import json
+import os
 import random
 from datetime import datetime
-from dateutil import parser
 import pytz
 
-from core.sheets import get_sheet, update_cell, append_row
-from bot.helpers import send_message, send_buttons
-from bot.keyboards import main_keyboard
-from core.members import find_member
-
-# تنظیمات
-WORKSHEET_TASKS = "Tasks"
-WORKSHEET_MEMBERS = "members"
-COL_TASKID = 0
-COL_TEAM = 1
-COL_DATE_EN = 2
-COL_DATE_FA = 3
-COL_TIME = 5
-COL_TITLE = 6
-COL_STATUS = 9
-COL_DONE = 18
+from core.sheets import update_cell, append_row  # async هستن
+from bot.helpers import send_message, send_buttons  # async
+from bot.keyboards import main_keyboard, team_selection_keyboard
+from core.members import find_member, save_or_add_member
+from core.tasks import get_tasks_today, get_tasks_week, get_tasks_overdue, update_task_status
+from core.messages import get_random_message, get_welcome_message
+from core.logging import log_error
 
 IRAN_TZ = pytz.timezone("Asia/Tehran")
 
-def _get_tasks_rows():
-    rows = get_sheet(WORKSHEET_TASKS)
-    if not rows or len(rows) < 2:
-        return []
-    return rows
-
-def parse_date(date_str):
-    if not date_str:
-        return None
-    date_str = str(date_str).strip().replace("\u200e", "").replace("\u200f", "").replace("\u202a", "")
-    try:
-        return datetime.strptime(date_str, "%m/%d/%Y")
-    except:
-        try:
-            return parser.parse(date_str, dayfirst=False)
-        except:
-            return None
-
-def get_days_overdue(date_str):
-    due = parse_date(date_str)
-    if not due:
-        return 0
-    today = datetime.now(IRAN_TZ).date()
-    return (today - due.date()).days
-
-def is_task_done(row):
-    if len(row) <= COL_DONE:
-        return False
-    done = str(row[COL_DONE]).strip().upper()
-    status = str(row[COL_STATUS]).strip().lower() if len(row) > COL_STATUS else ""
-    return done == "YES" or any(k in status for k in ["done", "yes", "انجام شد", "تحویل"])
-
-def get_user_tasks(team, today_only=False):
-    rows = _get_tasks_rows()
-    tasks = []
-    for row in rows[1:]:
-        if len(row) <= COL_TEAM or str(row[COL_TEAM]).strip() != team:
-            continue
-        if is_task_done(row):
-            continue
-        days = get_days_overdue(row[COL_DATE_EN])
-        if days < 0:
-            continue
-        if today_only and days != 0:
-            continue
-        title = str(row[COL_TITLE]).strip() if len(row) > COL_TITLE else "بدون عنوان"
-        date_fa = str(row[COL_DATE_FA]).strip() if len(row) > COL_DATE_FA else ""
-        time_str = str(row[COL_TIME]).strip() if len(row) > COL_TIME else ""
-        time_part = f" ⏰ {time_str}" if time_str else ""
-        days_text = " (امروز)" if days == 0 else f" ({days} روز گذشته)"
-        task_id = str(row[COL_TASKID]).strip()
-        tasks.append({
-            "task_id": task_id,
-            "title": title,
-            "date_fa": date_fa,
-            "time_part": time_part,
-            "days_text": days_text,
-            "days": days
-        })
-    return tasks
-
-def mark_task_done(task_id):
-    rows = _get_tasks_rows()
-    for i, row in enumerate(rows[1:], start=2):
-        if str(row[COL_TASKID]).strip() == task_id:
-            update_cell(WORKSHEET_TASKS, i, COL_STATUS + 1, "Done")
-            update_cell(WORKSHEET_TASKS, i, COL_DONE + 1, "YES")
-            return True
-    return False
-
-# دکمه انتخاب تیم
-def team_selection_keyboard():
-    buttons = [
-        [{"text": "Production", "callback_data": "team|Production"}],
-        [{"text": "Ai Production", "callback_data": "team|Ai Production"}],
-        [{"text": "Digital", "callback_data": "team|Digital"}]
-    ]
-    return buttons
-
-# ثبت یا آپدیت تیم در شیت members (در اولین ردیف خالی اگر جدید باشه)
-def save_or_add_member(chat_id, name, username, team=None):
-    rows = get_sheet(WORKSHEET_MEMBERS)
-    chat_id_str = str(chat_id).strip()
-    found = False
-    for i, row in enumerate(rows[1:], start=2):
-        if len(row) > 0 and str(row[0]).strip() == chat_id_str:
-            # کاربر موجود – آپدیت تیم
-            if team:
-                update_cell(WORKSHEET_MEMBERS, i, 4, team)  # ستون D = team
-            found = True
-            break
-    if not found:
-        # کاربر جدید – اضافه در اولین ردیف خالی
-        row = [
-            chat_id_str,
-            name or "",
-            username or "",
-            team or "",
-            "",
-            "No"
-        ]
-        append_row(WORKSHEET_MEMBERS, row)
-
-# ------------------- scheduler -------------------
-def send_week(chat_id, user_info=None):
+async def send_week(chat_id, user_info=None):
     member = find_member(chat_id)
     if not member or not member.get("team"):
         return
     team = member["team"]
-    tasks = get_user_tasks(team)
+    tasks = get_tasks_week(team)
     if not tasks:
-        send_message(chat_id, "این هفته کاری نداری! استراحت کن 😎👍")
+        await send_message(chat_id, "این هفته کاری نداری! استراحت کن 😎👍")
     else:
-        send_message(chat_id, f"📋 <b>کارهای این هفته ({len(tasks)} تسک):</b>")
+        await send_message(chat_id, f"📅 <b>کارهای این هفته ({len(tasks)} تسک):</b>")
         for t in tasks:
-            msg = f"<b>{t['title']}</b>\n📅 {t['date_fa']}{t['time_part']}{t['days_text']}"
-            buttons = [[{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}]]
-            send_buttons(chat_id, msg, buttons)
+            days_left = (t["deadline"] - datetime.now(IRAN_TZ).date()).days
+            days_text = " (امروز)" if days_left == 0 else f" ({days_left} روز آینده)"
+            msg = f"<b>{t['title']}</b>\n📅 {t['date_fa']} ⏰ {t['time'] or ''}{days_text}"
+            await send_message(chat_id, msg)
 
-def send_pending(chat_id, user_info=None):
+async def send_pending(chat_id, user_info=None):
     member = find_member(chat_id)
     if not member or not member.get("team"):
         return
     team = member["team"]
-    tasks_today = get_user_tasks(team, today_only=True)
-    tasks_overdue = [t for t in get_user_tasks(team) if t["days"] > 0]
-    
-    if tasks_today:
-        send_message(chat_id, f"📋 <b>کارهای امروز ({len(tasks_today)} تسک):</b>")
-        for t in tasks_today:
-            msg = f"<b>{t['title']}</b>\n📅 {t['date_fa']}{t['time_part']}{t['days_text']}"
-            buttons = [[{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}]]
-            send_buttons(chat_id, msg, buttons)
-    
+    tasks_overdue = get_tasks_overdue(team)
     if tasks_overdue:
-        send_message(chat_id, "یادت نره تسک‌هاتو انجام بدی! ⏰⚠️")
-        send_message(chat_id, f"⚠️ <b>تسک‌های عقب افتاده ({len(tasks_overdue)} تسک):</b>")
+        await send_message(chat_id, f"⚠️ <b>تسک‌های انجام نشده ({len(tasks_overdue)} تسک):</b>")
         for t in tasks_overdue:
-            msg = f"<b>{t['title']}</b>\n📅 {t['date_fa']}{t['time_part']}{t['days_text']}"
+            msg = f"<b>{t['title']}</b>\n📅 {t['date_fa']} ⏰ {t['time'] or ''} ({t['delay_days']} روز تاخیر)"
             buttons = [
                 [{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}],
-                [{"text": "نه هنوز ⏰", "callback_data": f"notyet|{t['task_id']}"}]
+                [{"text": "ندادم ⏰", "callback_data": f"notyet|{t['task_id']}"}]
             ]
-            send_buttons(chat_id, msg, buttons)
-    
-    if not tasks_today and not tasks_overdue:
-        send_message(chat_id, "تسک انجام نشده‌ای نداری! فوق‌العاده‌ای 🔥✅")
+            await send_buttons(chat_id, msg, buttons)
+    else:
+        await send_message(chat_id, "تسک انجام نشده‌ای نداری! فوق‌العاده‌ای 🔥✅")
 
-# ------------------- webhook -------------------
-def process_update(update):
+async def send_daily(chat_id, user_info=None):
+    member = find_member(chat_id)
+    if not member or not member.get("team"):
+        return
+    team = member["team"]
+    tasks_today = get_tasks_today(team)
+    if tasks_today:
+        await send_message(chat_id, f"🌅 <b>کارهای امروز ({len(tasks_today)} تسک):</b>")
+        for t in tasks_today:
+            msg = f"<b>{t['title']}</b>\n📅 {t['date_fa']} ⏰ {t['time'] or ''}"
+            buttons = [
+                [{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}],
+                [{"text": "ندادم ⏰", "callback_data": f"notyet|{t['task_id']}"}]
+            ]
+            await send_buttons(chat_id, msg, buttons)
+    else:
+        await send_message(chat_id, "امروز کاری نداری! 👍")
+
+async def process_update(update):
     if "message" not in update:
         if "callback_query" in update:
             cb = update["callback_query"]
@@ -180,52 +77,53 @@ def process_update(update):
             chat_id = cb["message"]["chat"]["id"]
             if data.startswith("done|"):
                 task_id = data.split("|")[1]
-                if mark_task_done(task_id):
-                    send_message(chat_id, "عالی! تسک انجام شد ✅")
+                if await update_task_status(task_id, "Done"):  # async if needed
+                    await send_message(chat_id, "عالی! تسک انجام شد ✅")
                 else:
-                    send_message(chat_id, "تسک پیدا نشد!")
+                    await send_message(chat_id, "تسک پیدا نشد!")
             elif data.startswith("notyet|"):
-                send_message(chat_id, "اوکی، بعداً یادآوری می‌کنم ⏰")
+                task_id = data.split("|")[1]
+                await send_message(chat_id, "اوکی، بعداً یادآوری می‌کنم ⏰")
             elif data.startswith("team|"):
                 team = data.split("|")[1]
-                user = cb["from"]
-                save_or_add_member(chat_id, user.get("first_name"), user.get("username"), team)
-                send_message(chat_id, f"تیم شما {team} ثبت شد! 👍")
-                send_pending(chat_id)
+                save_or_add_member(chat_id, team=team)
+                await send_message(chat_id, f"شما به تیم {team} اضافه شدید! ✅")
+                await send_buttons(chat_id, "منوی اصلی:", main_keyboard())
         return
 
     message = update["message"]
     chat_id = message["chat"]["id"]
     text = message.get("text", "").strip()
-    user = message.get("from", {})
 
-    # ثبت کاربر جدید (اگر نبود، در اولین ردیف خالی اضافه می‌کنه)
-    save_or_add_member(chat_id, user.get("first_name"), user.get("username"))
+    user_info = message.get("from", {})
+    name = user_info.get("first_name", "کاربر")
+    username = user_info.get("username", "")
+
+    save_or_add_member(chat_id, name=name, username=username)
 
     member = find_member(chat_id)
-    team = member["team"] if member and member.get("team") else None
-    if not team:
-        send_message(chat_id, "تیم شما ثبت نشده! لطفاً تیم خودتون رو انتخاب کنید:")
-        buttons = team_selection_keyboard()
-        send_buttons(chat_id, "تیمت چیه؟", buttons)
-        return
+    customname = member.get("customname", name)
 
-    if text in ["/start", "منوی اصلی"]:
-        send_message(chat_id, "سلام! خوش برگشتی 👋", main_keyboard())
+    if text == "/start":
+        if not member.get("welcomed"):
+            welcome_msg = get_welcome_message(customname)
+            await send_message(chat_id, welcome_msg)
+            await update_cell("members", member["row"], 6, "Yes")
+
+        if not member.get("team"):
+            await send_message(chat_id, "شما ثبت نشدید! مال کدوم تیم هستید؟")
+            await send_buttons(chat_id, "انتخاب تیم:", team_selection_keyboard())
+        else:
+            await send_buttons(chat_id, "منوی اصلی:", main_keyboard())
 
     elif text == "لیست کارهای امروز":
-        tasks = get_user_tasks(team, today_only=True)
-        if not tasks:
-            send_message(chat_id, "امروز کاری نداری! 👍")
-        else:
-            send_message(chat_id, f"📋 <b>کارهای امروز ({len(tasks)} تسک):</b>")
-            for t in tasks:
-                msg = f"<b>{t['title']}</b>\n📅 {t['date_fa']}{t['time_part']}{t['days_text']}"
-                buttons = [[{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}]]
-                send_buttons(chat_id, msg, buttons)
+        await send_daily(chat_id)
 
     elif text == "لیست کارهای هفته":
-        send_week(chat_id)
+        await send_week(chat_id)
 
     elif text == "تسک های انجام نشده":
-        send_pending(chat_id)
+        await send_pending(chat_id)
+
+    else:
+        await send_message(chat_id, "دستور نامعتبر! از منو استفاده کنید.")
