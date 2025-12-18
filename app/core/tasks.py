@@ -8,6 +8,7 @@ from dateutil.parser import parse as date_parse
 import pytz
 
 from core.sheets import get_sheet, update_cell
+from core.logging import log_error
 
 TASKS_SHEET = "Tasks"
 
@@ -42,7 +43,7 @@ def parse_date_any(v):
     try:
         return date_parse(s, dayfirst=False, yearfirst=False).date()
     except:
-        print(f"[DEBUG] Parse date failed for: {v}")
+        log_error(f"[DEBUG] Parse date failed for: {v}")
         return None
 
 def _load_tasks():
