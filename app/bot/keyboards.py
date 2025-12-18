@@ -8,7 +8,6 @@ def main_keyboard():
     ]
 
 def team_inline_keyboard():
-    # Inline برای انتخاب تیم (به جای Reply)
     return [
         [{"text": "Production", "callback_data": "team|Production"}],
         [{"text": "AI Production", "callback_data": "team|AI Production"}],
