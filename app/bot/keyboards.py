@@ -1,6 +1,9 @@
 # app/bot/keyboards.py
+# -*- coding: utf-8 -*-
+
 import json
 
+# فانکشن برای کیبورد اصلی (منوی کاربر) - ReplyKeyboardMarkup
 def main_keyboard():
     keyboard = {
         "keyboard": [
@@ -17,11 +20,12 @@ def main_keyboard():
     }
     return json.dumps(keyboard, ensure_ascii=False)
 
-def team_select_keyboard():
+# فانکشن برای کیبورد انتخاب تیم (برای ثبت کاربر جدید) - ReplyKeyboardMarkup
+def team_selection_keyboard():
     keyboard = {
         "keyboard": [
             [{"text": "Production"}],
-            [{"text": "Ai Production"}],
+            [{"text": "AI Production"}],
             [{"text": "Digital"}],
             [{"text": "بازگشت ⬅️"}]
         ],
@@ -29,6 +33,7 @@ def team_select_keyboard():
     }
     return json.dumps(keyboard, ensure_ascii=False)
 
+# فانکشن برای کیبورد بازگشت - ReplyKeyboardMarkup
 def back_keyboard():
     keyboard = {
         "keyboard": [
