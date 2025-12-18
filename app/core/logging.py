@@ -1,15 +1,17 @@
 # app/core/logging.py
+# -*- coding: utf-8 -*-
+
 import logging
 from datetime import datetime
 import pytz
-import os  # اضافه‌شده
+import os
 
 IRAN_TZ = pytz.timezone("Asia/Tehran")
 
 # ساخت فولدر logs اگر وجود نداشت
 log_dir = 'app/logs'
 if not os.path.exists(log_dir):
-    os.makedirs(log_dir)  # فولدر رو می‌سازه
+    os.makedirs(log_dir)
 
 logging.basicConfig(
     filename=os.path.join(log_dir, 'bot.log'),  # مسیر کامل
