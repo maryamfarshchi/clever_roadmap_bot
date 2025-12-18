@@ -4,24 +4,21 @@
 import sys
 import os
 import pytz
+
 from fastapi import FastAPI, Request
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-# برای importهای داخلی پروژه
+# برای import درست ماژول‌های داخلی
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 
-from bot.handler import process_update
-from scheduler.job import (
-    run_daily_jobs,
-    run_weekly_jobs,
-    check_reminders
-)
+from bot.handler import process_update  # async
+from scheduler.job import run_weekly_jobs, run_daily_jobs, check_reminders  # async
 from core.logging import log_error, log_info
 
 # --------------------------------------------------
-# App
+# FastAPI App
 # --------------------------------------------------
 app = FastAPI()
 
@@ -31,38 +28,47 @@ app = FastAPI()
 IRAN_TZ = pytz.timezone("Asia/Tehran")
 
 # --------------------------------------------------
-# Scheduler (APS)
+# Scheduler
 # --------------------------------------------------
 scheduler = AsyncIOScheduler(timezone=IRAN_TZ)
 
-# هر روز ساعت 08:00 صبح → تسک‌های امروز
+# روزانه 08:00 → برای همه اعضا بر اساس تیم: تسک‌های امروز
 scheduler.add_job(
     run_daily_jobs,
     CronTrigger(hour=8, minute=0),
     id="daily_jobs",
-    replace_existing=True
+    replace_existing=True,
+    max_instances=1,
+    coalesce=True,
+    misfire_grace_time=300
 )
 
-# شنبه هر هفته ساعت 09:00 صبح → تسک‌های هفته
+# شنبه 09:00 → برای همه اعضا بر اساس تیم: تسک‌های ۷ روز آینده
 scheduler.add_job(
     run_weekly_jobs,
     CronTrigger(day_of_week="sat", hour=9, minute=0),
     id="weekly_jobs",
-    replace_existing=True
+    replace_existing=True,
+    max_instances=1,
+    coalesce=True,
+    misfire_grace_time=300
 )
 
-# هر روز ساعت 10:00 → ریمایندرها (۲ روز مونده، ددلاین، تاخیر، هشدار مدیر)
+# روزانه 10:00 → یادآوری‌ها (2 روز مانده، ددلاین، تاخیر، هشدار مدیر)
 scheduler.add_job(
     check_reminders,
     CronTrigger(hour=10, minute=0),
-    id="reminders",
-    replace_existing=True
+    id="reminders_jobs",
+    replace_existing=True,
+    max_instances=1,
+    coalesce=True,
+    misfire_grace_time=300
 )
 
-# مهم: جلوگیری از start شدن چندباره روی Render
+# ✅ جلوگیری از دوبار start شدن روی Render (multi import / multi worker)
 if not scheduler.running:
     scheduler.start()
-    log_info("Scheduler started successfully")
+    log_info("Scheduler started ✅")
 
 # --------------------------------------------------
 # Routes
@@ -86,7 +92,7 @@ async def webhook(request: Request):
         return {"ok": False, "error": str(e)}
 
 # --------------------------------------------------
-# Manual trigger endpoints (for debug / admin)
+# Manual triggers (Debug/Admin)
 # --------------------------------------------------
 
 @app.post("/run/daily")
@@ -119,10 +125,10 @@ async def run_reminders():
 @app.post("/sync_tasks")
 async def sync_tasks():
     """
-    Manual sync trigger for Google Sheet → Tasks
+    Manual trigger to sync Time Sheet -> Tasks (Google Apps Script action=sync_tasks)
     """
     try:
-        google_api = os.getenv("GOOGLE_API_URL")
+        google_api = os.getenv("GOOGLE_API_URL", "").strip()
         if not google_api:
             return {"ok": False, "error": "GOOGLE_API_URL not set"}
 
@@ -135,8 +141,7 @@ async def sync_tasks():
             ) as response:
                 if response.status == 200:
                     return {"ok": True}
-
-        return {"ok": False, "error": "Sync failed"}
+                return {"ok": False, "error": f"sync failed: {response.status}"}
     except Exception as e:
         log_error(f"SYNC ERROR: {e}")
         return {"ok": False, "error": str(e)}
