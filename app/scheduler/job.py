@@ -9,7 +9,7 @@ from core.tasks import _load_tasks, get_tasks_nearing_deadline, get_tasks_deadli
 from core.messages import get_random_message
 from bot.handler import send_message, send_buttons  # async
 from bot.handler import send_daily as handler_send_daily, send_week as handler_send_week
-from core.logging import log_error, log_info
+from core.logging import log_error
 
 TEAMS = ["production", "aiproduction", "digital"]
 
