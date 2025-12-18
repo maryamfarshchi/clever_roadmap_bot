@@ -17,8 +17,7 @@ async def send_message(chat_id, text):
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload) as response:
                 if response.status != 200:
-                    error_text = await response.text()
-                    log_error(f"Send message failed: {error_text}")
+                    log_error(f"Send message failed: {await response.text()}")
                     return False
                 return True
     except Exception as e:
@@ -40,15 +39,15 @@ async def send_buttons(chat_id, text, buttons):
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload) as response:
                 if response.status != 200:
-                    error_text = await response.text()
-                    log_error(f"Send buttons failed: {error_text}")
+                    log_error(f"Send buttons failed: {await response.text()}")
                     return False
                 return True
     except Exception as e:
         log_error(f"Send buttons ERROR: {e}")
         return False
 
-async def send_reply_keyboard(chat_id, text, keyboard):
+async def send_reply_keyboard(chat_id, text, keyboard_rows):
+    # keyboard_rows: List[List[{text:...}]]
     if not BOT_TOKEN:
         log_error("BOT_TOKEN not set in environment")
         return False
@@ -57,14 +56,17 @@ async def send_reply_keyboard(chat_id, text, keyboard):
         "chat_id": chat_id,
         "text": text,
         "parse_mode": "HTML",
-        "reply_markup": {"keyboard": keyboard, "resize_keyboard": True, "one_time_keyboard": False}
+        "reply_markup": {
+            "keyboard": keyboard_rows,
+            "resize_keyboard": True,
+            "one_time_keyboard": False
+        }
     }
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload) as response:
                 if response.status != 200:
-                    error_text = await response.text()
-                    log_error(f"Send reply keyboard failed: {error_text}")
+                    log_error(f"Send reply keyboard failed: {await response.text()}")
                     return False
                 return True
     except Exception as e:
