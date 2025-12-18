@@ -40,7 +40,6 @@ async def send_buttons(chat_id, text, buttons):
     })
 
 async def send_reply_keyboard(chat_id, text, keyboard_rows):
-    # keyboard_rows: List[List[{text:...}]]
     return await _post("sendMessage", {
         "chat_id": chat_id,
         "text": text,
