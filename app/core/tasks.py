@@ -1,11 +1,10 @@
 # app/core/tasks.py
 # -*- coding: utf-8 -*-
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import re
 import json
 import pytz
-from dateutil.parser import parse as date_parse
 
 from core.sheets import get_sheet, update_cell
 from core.logging import log_error
@@ -14,15 +13,15 @@ TASKS_SHEET = "Tasks"
 IRAN_TZ = pytz.timezone("Asia/Tehran")
 
 # indexes (0-based) مطابق شیت شما
-COL_TASKID   = 0
-COL_TEAM     = 1
-COL_DATE_EN  = 2
-COL_DATE_FA  = 3
-COL_TIME     = 5
-COL_TITLE    = 6
-COL_STATUS   = 9
-COL_DONE     = 17
-COL_REMINDERS= 18  # Reminders (JSON)
+COL_TASKID    = 0
+COL_TEAM      = 1
+COL_DATE_EN   = 2
+COL_DATE_FA   = 3
+COL_TIME      = 5
+COL_TITLE     = 6
+COL_STATUS    = 9
+COL_DONE      = 17
+COL_REMINDERS = 18  # Reminders (JSON)
 
 def clean(s):
     return str(s or "").strip()
@@ -30,19 +29,131 @@ def clean(s):
 def normalize_team(s):
     return clean(s).lower().replace("ai production", "aiproduction").replace(" ", "")
 
-def parse_date_any(v):
-    if not v:
+# ---------- Jalali -> Gregorian (بدون نیاز به کتابخونه) ----------
+def jalali_to_gregorian(jy: int, jm: int, jd: int) -> date:
+    """
+    Convert Jalali (Persian) date to Gregorian date.
+    jy:  Jalali year (e.g., 1404)
+    jm:  Jalali month 1..12
+    jd:  Jalali day   1..31
+    returns: datetime.date (Gregorian)
+    """
+    jy += 1595
+    days = -355668 + (365 * jy) + (jy // 33) * 8 + ((jy % 33) + 3) // 4 + jd
+
+    if jm < 7:
+        days += (jm - 1) * 31
+    else:
+        days += ((jm - 7) * 30) + 186
+
+    gy = 400 * (days // 146097)
+    days %= 146097
+
+    if days > 36524:
+        gy += 100 * ((days - 1) // 36524)
+        days = (days - 1) % 36524
+        if days >= 365:
+            days += 1
+
+    gy += 4 * (days // 1461)
+    days %= 1461
+
+    if days > 365:
+        gy += (days - 1) // 365
+        days = (days - 1) % 365
+
+    gd = days + 1
+
+    leap = (gy % 4 == 0 and gy % 100 != 0) or (gy % 400 == 0)
+    month_days = [0, 31, 29 if leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+    gm = 1
+    while gm <= 12 and gd > month_days[gm]:
+        gd -= month_days[gm]
+        gm += 1
+
+    return date(gy, gm, gd)
+
+def parse_jalali_date_fa(date_fa: str):
+    """
+    Accepts formats like:
+    - 1404/09/23
+    - 1404/9/23
+    - 1404-09-23
+    returns: date (Gregorian) or None
+    """
+    s = clean(date_fa)
+    if not s:
         return None
-    s = clean(v)
-    s = re.sub(r"[\u200e\u200f\u202a-\u202e]", "", s)
+
+    s = re.sub(r"[\u200e\u200f\u202a-\u202e]", "", s)  # remove RTL marks
+    s = s.replace("-", "/")
+    parts = [p for p in s.split("/") if p.strip()]
+
+    if len(parts) != 3:
+        return None
+
     try:
-        return datetime.strptime(s, "%m/%d/%Y").date()
+        y = int(parts[0])
+        m = int(parts[1])
+        d = int(parts[2])
     except ValueError:
-        pass
+        return None
+
+    # basic validation
+    if y < 1200 or y > 1600:
+        return None
+    if m < 1 or m > 12:
+        return None
+    if d < 1 or d > 31:
+        return None
+
     try:
-        return date_parse(s, dayfirst=False, yearfirst=False).date()
+        return jalali_to_gregorian(y, m, d)
     except Exception:
-        log_error(f"Parse date failed for: {v}")
+        return None
+
+def parse_mdy_maybe_jalali(date_en: str, date_fa_hint: str = ""):
+    """
+    date_en examples:
+      - 10/05/1404  (your sheet)
+      - 10/05/2025  (proper Gregorian)
+    If year is small (e.g. 1404), it's almost certainly Jalali year, not Gregorian.
+    We'll use date_fa if present, otherwise interpret as Jalali and convert.
+    """
+    s = clean(date_en)
+    if not s:
+        return None
+
+    # Prefer Date FA if available
+    fa = parse_jalali_date_fa(date_fa_hint)
+    if fa:
+        return fa
+
+    s = re.sub(r"[\u200e\u200f\u202a-\u202e]", "", s).replace("-", "/")
+    parts = [p for p in s.split("/") if p.strip()]
+    if len(parts) != 3:
+        return None
+
+    try:
+        mm = int(parts[0])
+        dd = int(parts[1])
+        yy = int(parts[2])
+    except ValueError:
+        return None
+
+    # If yy is like 1404 => treat as Jalali year and convert using (yy, mm, dd) as (y, m, d)
+    # But our date_en is M/D/Y. For Jalali conversion we need Y/M/D.
+    if yy < 1800:
+        try:
+            return jalali_to_gregorian(yy, mm, dd)
+        except Exception:
+            return None
+
+    # Otherwise treat as Gregorian
+    try:
+        return date(yy, mm, dd)
+    except Exception:
         return None
 
 async def load_tasks():
@@ -60,7 +171,7 @@ async def load_tasks():
 
         task_id  = clean(row[COL_TASKID])
         team     = normalize_team(row[COL_TEAM])
-        date_en  = row[COL_DATE_EN]
+        date_en  = clean(row[COL_DATE_EN])
         date_fa  = clean(row[COL_DATE_FA])
         time_str = clean(row[COL_TIME])
         title    = clean(row[COL_TITLE])
@@ -79,8 +190,10 @@ async def load_tasks():
         if not task_id or not team or not title:
             continue
 
-        deadline = parse_date_any(date_en)
+        # ✅ Correct deadline (Jalali -> Gregorian)
+        deadline = parse_jalali_date_fa(date_fa) or parse_mdy_maybe_jalali(date_en, date_fa_hint=date_fa)
         if not deadline:
+            log_error(f"Deadline parse failed for TaskID={task_id} date_fa={date_fa} date_en={date_en}")
             continue
 
         delay = (today - deadline).days
