@@ -7,7 +7,7 @@ import random
 from datetime import datetime
 import pytz
 
-from core.sheets import update_cell, append_row  # async هستن
+from core.sheets import update_cell, append_row  # async
 from bot.helpers import send_message, send_buttons  # async
 from bot.keyboards import main_keyboard, team_selection_keyboard
 from core.members import find_member, save_or_add_member
@@ -77,7 +77,7 @@ async def process_update(update):
             chat_id = cb["message"]["chat"]["id"]
             if data.startswith("done|"):
                 task_id = data.split("|")[1]
-                if await update_task_status(task_id, "Done"):  # async if needed
+                if await update_task_status(task_id, "Done"):
                     await send_message(chat_id, "عالی! تسک انجام شد ✅")
                 else:
                     await send_message(chat_id, "تسک پیدا نشد!")
