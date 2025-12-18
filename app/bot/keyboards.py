@@ -2,15 +2,15 @@
 # -*- coding: utf-8 -*-
 
 def main_keyboard():
-    # ReplyKeyboardMarkup expects: List[List[KeyboardButton]]
     return [
         [{"text": "لیست کارهای امروز"}, {"text": "لیست کارهای هفته"}],
         [{"text": "تسک های انجام نشده"}],
     ]
 
-def team_selection_keyboard():
+def team_inline_keyboard():
+    # Inline برای انتخاب تیم (به جای Reply)
     return [
-        [{"text": "Production"}],
-        [{"text": "AI Production"}],
-        [{"text": "Digital"}],
+        [{"text": "Production", "callback_data": "team|Production"}],
+        [{"text": "AI Production", "callback_data": "team|AI Production"}],
+        [{"text": "Digital", "callback_data": "team|Digital"}],
     ]
