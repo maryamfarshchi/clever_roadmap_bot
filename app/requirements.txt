@@ -1,10 +1,7 @@
 fastapi
 uvicorn
-requests
-python-dotenv
 apscheduler
 pytz
-python-dateutil
 cachetools
-aiohttp  # جدید برای async send
-tenacity  # جدید برای retry
+aiohttp
+tenacity
