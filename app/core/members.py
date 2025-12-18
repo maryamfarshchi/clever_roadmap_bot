@@ -28,7 +28,7 @@ async def find_member(chat_id):
                 "username": clean(row[2]) if len(row) > 2 else "",
                 "team": clean(row[3]) if len(row) > 3 else "",
                 "customname": clean(row[4]) if len(row) > 4 else "",
-                "welcomed": clean(row[5]) == "Yes" if len(row) > 5 else False
+                "welcomed": (clean(row[5]) == "Yes") if len(row) > 5 else False
             }
     return None
 
@@ -36,15 +36,12 @@ async def save_or_add_member(chat_id, name=None, username=None, team=None):
     member = await find_member(chat_id)
     if member:
         if team:
-            await update_cell(MEMBERS_SHEET, member["row"], 4, team)  # col=4 => team
-        # اگر اسم/یوزرنیم خالی بود میشه اینجا هم آپدیت کرد (اختیاری)
+            await update_cell(MEMBERS_SHEET, member["row"], 4, team)  # col=4 team
         return await find_member(chat_id)
 
     new_row = [chat_id, name or "", username or "", team or "", "", "No"]
     await append_row(MEMBERS_SHEET, new_row)
     return await find_member(chat_id)
-
-add_member_if_not_exists = save_or_add_member
 
 async def get_members_by_team(team):
     rows = await get_sheet(MEMBERS_SHEET)
@@ -52,16 +49,16 @@ async def get_members_by_team(team):
         return []
 
     team_norm = _normalize(team)
-    members = []
+    out = []
     for row in rows[1:]:
         row_team = _normalize(row[3]) if len(row) > 3 else ""
         if row_team == team_norm:
-            members.append({
+            out.append({
                 "chat_id": clean(row[0]) if len(row) > 0 else "",
                 "name": clean(row[1]) if len(row) > 1 else "",
                 "username": clean(row[2]) if len(row) > 2 else "",
                 "team": clean(row[3]) if len(row) > 3 else "",
                 "customname": clean(row[4]) if len(row) > 4 else "",
-                "welcomed": clean(row[5]) == "Yes" if len(row) > 5 else False
+                "welcomed": (clean(row[5]) == "Yes") if len(row) > 5 else False
             })
-    return members
+    return out
