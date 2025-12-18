@@ -12,7 +12,7 @@ from core.logging import log_error
 TASKS_SHEET = "Tasks"
 IRAN_TZ = pytz.timezone("Asia/Tehran")
 
-# indexes (0-based) مطابق شیت شما
+# 0-based columns in sheet
 COL_TASKID    = 0
 COL_TEAM      = 1
 COL_DATE_EN   = 2
@@ -21,7 +21,7 @@ COL_TIME      = 5
 COL_TITLE     = 6
 COL_STATUS    = 9
 COL_DONE      = 17
-COL_REMINDERS = 18  # Reminders (JSON)
+COL_REMINDERS = 18
 
 def clean(s):
     return str(s or "").strip()
@@ -29,18 +29,10 @@ def clean(s):
 def normalize_team(s):
     return clean(s).lower().replace("ai production", "aiproduction").replace(" ", "")
 
-# ---------- Jalali -> Gregorian (بدون نیاز به کتابخونه) ----------
+# Jalali -> Gregorian (pure python)
 def jalali_to_gregorian(jy: int, jm: int, jd: int) -> date:
-    """
-    Convert Jalali (Persian) date to Gregorian date.
-    jy:  Jalali year (e.g., 1404)
-    jm:  Jalali month 1..12
-    jd:  Jalali day   1..31
-    returns: datetime.date (Gregorian)
-    """
     jy += 1595
     days = -355668 + (365 * jy) + (jy // 33) * 8 + ((jy % 33) + 3) // 4 + jd
-
     if jm < 7:
         days += (jm - 1) * 31
     else:
@@ -63,96 +55,31 @@ def jalali_to_gregorian(jy: int, jm: int, jd: int) -> date:
         days = (days - 1) % 365
 
     gd = days + 1
-
     leap = (gy % 4 == 0 and gy % 100 != 0) or (gy % 400 == 0)
-    month_days = [0, 31, 29 if leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-
+    mdays = [0, 31, 29 if leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
     gm = 1
-    while gm <= 12 and gd > month_days[gm]:
-        gd -= month_days[gm]
+    while gm <= 12 and gd > mdays[gm]:
+        gd -= mdays[gm]
         gm += 1
-
     return date(gy, gm, gd)
 
-def parse_jalali_date_fa(date_fa: str):
-    """
-    Accepts formats like:
-    - 1404/09/23
-    - 1404/9/23
-    - 1404-09-23
-    returns: date (Gregorian) or None
-    """
+def parse_jalali_date(date_fa: str):
     s = clean(date_fa)
     if not s:
         return None
-
-    s = re.sub(r"[\u200e\u200f\u202a-\u202e]", "", s)  # remove RTL marks
+    s = re.sub(r"[\u200e\u200f\u202a-\u202e]", "", s)
     s = s.replace("-", "/")
     parts = [p for p in s.split("/") if p.strip()]
-
     if len(parts) != 3:
         return None
-
     try:
-        y = int(parts[0])
-        m = int(parts[1])
-        d = int(parts[2])
+        y = int(parts[0]); m = int(parts[1]); d = int(parts[2])
     except ValueError:
         return None
-
-    # basic validation
-    if y < 1200 or y > 1600:
+    if y < 1200 or y > 1600 or m < 1 or m > 12 or d < 1 or d > 31:
         return None
-    if m < 1 or m > 12:
-        return None
-    if d < 1 or d > 31:
-        return None
-
     try:
         return jalali_to_gregorian(y, m, d)
-    except Exception:
-        return None
-
-def parse_mdy_maybe_jalali(date_en: str, date_fa_hint: str = ""):
-    """
-    date_en examples:
-      - 10/05/1404  (your sheet)
-      - 10/05/2025  (proper Gregorian)
-    If year is small (e.g. 1404), it's almost certainly Jalali year, not Gregorian.
-    We'll use date_fa if present, otherwise interpret as Jalali and convert.
-    """
-    s = clean(date_en)
-    if not s:
-        return None
-
-    # Prefer Date FA if available
-    fa = parse_jalali_date_fa(date_fa_hint)
-    if fa:
-        return fa
-
-    s = re.sub(r"[\u200e\u200f\u202a-\u202e]", "", s).replace("-", "/")
-    parts = [p for p in s.split("/") if p.strip()]
-    if len(parts) != 3:
-        return None
-
-    try:
-        mm = int(parts[0])
-        dd = int(parts[1])
-        yy = int(parts[2])
-    except ValueError:
-        return None
-
-    # If yy is like 1404 => treat as Jalali year and convert using (yy, mm, dd) as (y, m, d)
-    # But our date_en is M/D/Y. For Jalali conversion we need Y/M/D.
-    if yy < 1800:
-        try:
-            return jalali_to_gregorian(yy, mm, dd)
-        except Exception:
-            return None
-
-    # Otherwise treat as Gregorian
-    try:
-        return date(yy, mm, dd)
     except Exception:
         return None
 
@@ -162,21 +89,19 @@ async def load_tasks():
         return []
 
     today = datetime.now(IRAN_TZ).date()
-    data = rows[1:]
     tasks = []
 
-    for i, row in enumerate(data, start=2):
+    for i, row in enumerate(rows[1:], start=2):
         if len(row) <= COL_REMINDERS:
             continue
 
-        task_id  = clean(row[COL_TASKID])
-        team     = normalize_team(row[COL_TEAM])
-        date_en  = clean(row[COL_DATE_EN])
-        date_fa  = clean(row[COL_DATE_FA])
+        task_id = clean(row[COL_TASKID])
+        team = normalize_team(row[COL_TEAM])
+        date_fa = clean(row[COL_DATE_FA]).lstrip("'")
         time_str = clean(row[COL_TIME])
-        title    = clean(row[COL_TITLE])
+        title = clean(row[COL_TITLE])
 
-        status   = clean(row[COL_STATUS]).lower()
+        status = clean(row[COL_STATUS]).lower()
         done_val = clean(row[COL_DONE]).lower()
 
         reminders_raw = clean(row[COL_REMINDERS]) or "{}"
@@ -190,17 +115,17 @@ async def load_tasks():
         if not task_id or not team or not title:
             continue
 
-        # ✅ Correct deadline (Jalali -> Gregorian)
-        deadline = parse_jalali_date_fa(date_fa) or parse_mdy_maybe_jalali(date_en, date_fa_hint=date_fa)
+        deadline = parse_jalali_date(date_fa)
         if not deadline:
-            log_error(f"Deadline parse failed for TaskID={task_id} date_fa={date_fa} date_en={date_en}")
+            # اگر هنوز date_fa خراب بود، حذف نکن، ولی لاگ بزن
+            log_error(f"Deadline parse failed TaskID={task_id} DateFA={date_fa}")
             continue
 
         delay = (today - deadline).days
-        is_done = (done_val in ["yes", "y"]) or any(k in status for k in ["done", "انجام", "تمام"])
+        is_done = (done_val in ["yes", "y"]) or ("done" in status) or ("انجام" in status)
 
         tasks.append({
-            "row_index": i,      # 1-based sheet row
+            "row_index": i,
             "task_id": task_id,
             "team": team,
             "title": title,
@@ -215,28 +140,32 @@ async def load_tasks():
 
     return tasks
 
-def _by_team(team, tasks):
+def _by_team(team: str, tasks: list):
     t = normalize_team(team)
     if t == "all":
         return tasks
     return [x for x in tasks if x["team"] == t]
 
-async def get_tasks_today(team):
+async def get_tasks_today(team: str):
     tasks = await load_tasks()
     today = datetime.now(IRAN_TZ).date()
     return [t for t in _by_team(team, tasks) if t["deadline"] == today and not t["done"]]
 
-async def get_tasks_week(team):
+async def get_tasks_week(team: str):
     tasks = await load_tasks()
     today = datetime.now(IRAN_TZ).date()
     end = today + timedelta(days=7)
-    return [t for t in _by_team(team, tasks) if today <= t["deadline"] <= end and not t["done"]]
+    out = [t for t in _by_team(team, tasks) if today <= t["deadline"] <= end and not t["done"]]
+    out.sort(key=lambda x: x["deadline"])
+    return out
 
-async def get_tasks_overdue(team):
+async def get_tasks_not_done(team: str):
     tasks = await load_tasks()
-    return [t for t in _by_team(team, tasks) if t["delay_days"] > 0 and not t["done"]]
+    out = [t for t in _by_team(team, tasks) if not t["done"]]
+    out.sort(key=lambda x: x["deadline"])
+    return out
 
-async def update_task_status(task_id, new_status):
+async def update_task_status(task_id: str, new_status: str):
     tasks = await load_tasks()
     for t in tasks:
         if t["task_id"] == task_id:
@@ -247,7 +176,7 @@ async def update_task_status(task_id, new_status):
             return ok1 and ok2
     return False
 
-async def set_task_reminders_json(task_id, reminders_dict):
+async def set_task_reminders_json(task_id: str, reminders_dict: dict):
     tasks = await load_tasks()
     for t in tasks:
         if t["task_id"] == task_id:
@@ -255,17 +184,11 @@ async def set_task_reminders_json(task_id, reminders_dict):
             return await update_cell(TASKS_SHEET, t["row_index"], COL_REMINDERS + 1, payload)
     return False
 
-async def update_task_reminder(task_id, key, value):
+async def update_task_reminder(task_id: str, key: str, value):
     tasks = await load_tasks()
     for t in tasks:
         if t["task_id"] == task_id:
             reminders = t["reminders"] or {}
-            if key == "delays":
-                delays = reminders.get("delays", [])
-                if value not in delays:
-                    delays.append(value)
-                reminders["delays"] = delays
-            else:
-                reminders[key] = value
+            reminders[key] = value
             return await set_task_reminders_json(task_id, reminders)
     return False
