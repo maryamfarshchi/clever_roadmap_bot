@@ -2,10 +2,17 @@
 # -*- coding: utf-8 -*-
 
 import os
+import sys
 import pytz
+
 from fastapi import FastAPI, Request
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+
+# ✅ make /app importable: so "import bot", "import core", "import scheduler" works on Render
+APP_DIR = os.path.dirname(__file__)
+if APP_DIR not in sys.path:
+    sys.path.insert(0, APP_DIR)
 
 from bot.handler import process_update
 from scheduler.job import run_weekly_jobs, run_daily_jobs, check_reminders
@@ -17,7 +24,8 @@ IRAN_TZ = pytz.timezone("Asia/Tehran")
 
 scheduler = AsyncIOScheduler(timezone=IRAN_TZ)
 
-def _setup_jobs():
+def setup_jobs():
+    # Daily summary message (you can change hour/minute)
     scheduler.add_job(
         run_daily_jobs,
         CronTrigger(hour=8, minute=0),
@@ -25,8 +33,10 @@ def _setup_jobs():
         replace_existing=True,
         max_instances=1,
         coalesce=True,
-        misfire_grace_time=300
+        misfire_grace_time=600,
     )
+
+    # Weekly summary message (Saturday 09:00 Tehran)
     scheduler.add_job(
         run_weekly_jobs,
         CronTrigger(day_of_week="sat", hour=9, minute=0),
@@ -34,8 +44,10 @@ def _setup_jobs():
         replace_existing=True,
         max_instances=1,
         coalesce=True,
-        misfire_grace_time=300
+        misfire_grace_time=600,
     )
+
+    # Reminder checker
     scheduler.add_job(
         check_reminders,
         CronTrigger(hour=10, minute=0),
@@ -43,12 +55,12 @@ def _setup_jobs():
         replace_existing=True,
         max_instances=1,
         coalesce=True,
-        misfire_grace_time=300
+        misfire_grace_time=600,
     )
 
 @app.on_event("startup")
 async def on_startup():
-    _setup_jobs()
+    setup_jobs()
     if not scheduler.running:
         scheduler.start()
         log_info("Scheduler started ✅")
@@ -75,7 +87,15 @@ async def webhook(request: Request):
         log_error(f"Webhook ERROR: {e}")
         return {"ok": False, "error": str(e)}
 
-# --- manual triggers ---
+@app.post("/sync_tasks")
+async def sync_tasks_endpoint():
+    try:
+        ok = await sync_tasks()
+        return {"ok": bool(ok)}
+    except Exception as e:
+        log_error(f"SYNC ERROR: {e}")
+        return {"ok": False, "error": str(e)}
+
 @app.post("/run/daily")
 async def run_daily():
     try:
@@ -101,13 +121,4 @@ async def run_reminders():
         return {"ok": True, "job": "reminders"}
     except Exception as e:
         log_error(f"REMINDERS JOB ERROR: {e}")
-        return {"ok": False, "error": str(e)}
-
-@app.post("/sync_tasks")
-async def sync_tasks_endpoint():
-    try:
-        ok = await sync_tasks()
-        return {"ok": bool(ok)}
-    except Exception as e:
-        log_error(f"SYNC ERROR: {e}")
         return {"ok": False, "error": str(e)}
