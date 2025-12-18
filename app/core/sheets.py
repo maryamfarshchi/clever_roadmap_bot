@@ -2,42 +2,51 @@
 # -*- coding: utf-8 -*-
 
 import os
-import requests
+import aiohttp  # برای async اگر لازم
+from tenacity import retry, stop_after_attempt, wait_exponential
+from cachetools import TTLCache
+from core.config import CACHE_TTL
+from core.logging import log_error, log_info  # import logging
 
 API = os.getenv("GOOGLE_API_URL", "").rstrip("/")
+cache = TTLCache(maxsize=10, ttl=CACHE_TTL)
 
-def get_sheet(sheet):
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
+async def get_sheet(sheet):
+    key = f"sheet_{sheet}"
+    if key in cache:
+        return cache[key]
     try:
-        url = f"{API}?sheet={sheet}"
-        response = requests.get(url, timeout=10)
-        data = response.json()
-
-        if "error" in data or "rows" not in data:
-            print(f"Sheet Error: {data}")
-            return []
-
-        return data["rows"]
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{API}?sheet={sheet}", timeout=10) as response:
+                data = await response.json()
+                if "error" in data or "rows" not in data:
+                    log_error(f"Sheet Error: {data}")
+                    return []
+                cache[key] = data["rows"]
+                return data["rows"]
     except Exception as e:
-        print(f"get_sheet ERROR: {e}")
+        log_error(f"get_sheet ERROR: {e}")
         return []
 
-def append_row(sheet, row):
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
+async def update_cell(sheet, row, col, value):
     try:
-        payload = {"sheet": sheet, "row": row}
-        requests.post(f"{API}", json=payload, timeout=10)
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"{API}?sheet={sheet}&row={row}&col={col}", json={"value": value}, timeout=10) as response:
+                data = await response.json()
+                return "error" not in data
     except Exception as e:
-        print(f"append_row ERROR: {e}")
+        log_error(f"update_cell ERROR: {e}")
+        return False
 
-def update_cell(sheet, row_index, col_index, value):
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
+async def append_row(sheet, row_data):
     try:
-        payload = {
-            "sheet": sheet,
-            "update": {
-                "row": row_index,
-                "col": col_index,
-                "value": value,
-            },
-        }
-        requests.post(f"{API}", json=payload, timeout=10)
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"{API}?sheet={sheet}", json={"row": row_data}, timeout=10) as response:
+                data = await response.json()
+                return "error" not in data
     except Exception as e:
-        print(f"update_cell ERROR: {e}")
+        log_error(f"append_row ERROR: {e}")
+        return False
