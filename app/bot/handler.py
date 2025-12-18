@@ -8,7 +8,7 @@ from datetime import datetime
 import pytz
 
 from core.sheets import update_cell, append_row  # async
-from bot.helpers import send_message, send_buttons  # async
+from bot.helpers import send_message, send_buttons, send_reply_keyboard  # اضافه کن send_reply_keyboard
 from bot.keyboards import main_keyboard, team_selection_keyboard
 from core.members import find_member, save_or_add_member
 from core.tasks import get_tasks_today, get_tasks_week, get_tasks_overdue, update_task_status
@@ -88,7 +88,7 @@ async def process_update(update):
                 team = data.split("|")[1]
                 save_or_add_member(chat_id, team=team)
                 await send_message(chat_id, f"شما به تیم {team} اضافه شدید! ✅")
-                await send_buttons(chat_id, "منوی اصلی:", main_keyboard())
+                await send_reply_keyboard(chat_id, "منوی اصلی:", main_keyboard())
         return
     message = update["message"]
     chat_id = message["chat"]["id"]
@@ -106,9 +106,9 @@ async def process_update(update):
             await update_cell("members", member["row"], 6, "Yes")
         if not member.get("team"):
             await send_message(chat_id, "شما ثبت نشدید! مال کدوم تیم هستید؟")
-            await send_buttons(chat_id, "انتخاب تیم:", team_selection_keyboard())
+            await send_reply_keyboard(chat_id, "انتخاب تیم:", team_selection_keyboard())
         else:
-            await send_buttons(chat_id, "منوی اصلی:", main_keyboard())
+            await send_reply_keyboard(chat_id, "منوی اصلی:", main_keyboard())
     elif text == "لیست کارهای امروز":
         await send_daily(chat_id)
     elif text == "لیست کارهای هفته":
