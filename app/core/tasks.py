@@ -10,6 +10,8 @@ from core.sheets import get_sheet, update_cell
 from core.logging import log_error
 
 TASKS_SHEET = "Tasks"
+TIME_SHEET = "Time Sheet"  # نام شیت تایم‌شیت - اگر متفاوت بود، تغییر بده
+
 IRAN_TZ = pytz.timezone("Asia/Tehran")
 
 # 0-based columns in sheet
@@ -140,6 +142,70 @@ async def load_tasks():
 
     return tasks
 
+async def load_time_sheet():
+    rows = await get_sheet(TIME_SHEET)
+    if not rows or len(rows) < 2:
+        return []
+
+    today = datetime.now(IRAN_TZ).date()
+    tasks = []
+
+    for i, row in enumerate(rows[1:], start=2):
+        if len(row) <= COL_REMINDERS:
+            continue
+
+        task_id = clean(row[COL_TASKID])
+        team = normalize_team(row[COL_TEAM])
+        date_fa = clean(row[COL_DATE_FA]).lstrip("'")
+        time_str = clean(row[COL_TIME])
+        title = clean(row[COL_TITLE])
+
+        # دینامیک کردن ستون status بر اساس تیم
+        status_col_map = {
+            'production': 7,  # 0-based برای ستون 8
+            'aiproduction': 12,  # 0-based برای ستون 13
+            'digital': 17   # 0-based برای ستون 18
+        }
+        status_col = status_col_map.get(team, 9)  # default به 9 اگر تیم پیدا نشد
+        status = clean(row[status_col]).lower() if len(row) > status_col else ""
+
+        done_val = clean(row[COL_DONE]).lower()
+
+        reminders_raw = clean(row[COL_REMINDERS]) or "{}"
+        try:
+            reminders = json.loads(reminders_raw)
+            if not isinstance(reminders, dict):
+                reminders = {}
+        except Exception:
+            reminders = {}
+
+        if not task_id:
+            continue
+
+        deadline = parse_jalali_date(date_fa)
+        if not deadline:
+            log_error(f"Deadline parse failed TaskID={task_id} DateFA={date_fa}")
+            continue
+
+        delay = (today - deadline).days
+        is_done = (done_val in ["yes", "y"]) or ("done" in status) or ("انجام" in status)
+
+        tasks.append({
+            "row_index": i,
+            "task_id": task_id,
+            "team": team,
+            "title": title,
+            "date_fa": date_fa,
+            "time": time_str,
+            "deadline": deadline,
+            "delay_days": delay,
+            "done": is_done,
+            "status": status,
+            "reminders": reminders
+        })
+
+    return tasks
+
 def _by_team(team: str, tasks: list):
     t = normalize_team(team)
     if t == "all":
@@ -161,20 +227,43 @@ async def get_tasks_week(team: str):
 
 async def get_tasks_not_done(team: str):
     tasks = await load_tasks()
-    out = [t for t in _by_team(team, tasks) if not t["done"]]
+    out = [t for t in _by_team(team, tasks) if not t["done"] and t["delay_days"] > 0]
     out.sort(key=lambda x: x["deadline"])
     return out
 
 async def update_task_status(task_id: str, new_status: str):
+    # آپدیت Tasks
     tasks = await load_tasks()
+    updated_tasks = False
     for t in tasks:
         if t["task_id"] == task_id:
             ok1 = await update_cell(TASKS_SHEET, t["row_index"], COL_STATUS + 1, new_status)
             ok2 = True
             if "done" in new_status.lower():
                 ok2 = await update_cell(TASKS_SHEET, t["row_index"], COL_DONE + 1, "YES")
-            return ok1 and ok2
-    return False
+            updated_tasks = ok1 and ok2
+            break
+
+    # آپدیت Time Sheet (اگر task_id پیدا بشه)
+    time_sheet_tasks = await load_time_sheet()
+    updated_time_sheet = False
+    for ts in time_sheet_tasks:
+        if ts["task_id"] == task_id:
+            # دینامیک کردن ستون status بر اساس تیم
+            status_col_map = {
+                'production': 8,  # 1-based برای ستون 8
+                'aiproduction': 13,  # 1-based برای ستون 13
+                'digital': 18   # 1-based برای ستون 18
+            }
+            status_col = status_col_map.get(ts["team"], COL_STATUS + 1)  # default به COL_STATUS + 1 اگر تیم پیدا نشد
+            ok1_ts = await update_cell(TIME_SHEET, ts["row_index"], status_col, new_status)
+            ok2_ts = True
+            if "done" in new_status.lower():
+                ok2_ts = await update_cell(TIME_SHEET, ts["row_index"], COL_DONE + 1, "YES")
+            updated_time_sheet = ok1_ts and ok2_ts
+            break
+
+    return updated_tasks or updated_time_sheet
 
 async def set_task_reminders_json(task_id: str, reminders_dict: dict):
     tasks = await load_tasks()
