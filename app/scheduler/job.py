@@ -1,4 +1,3 @@
-# app/scheduler/job.py
 # -*- coding: utf-8 -*-
 
 from datetime import datetime
@@ -8,6 +7,7 @@ from core.members import get_members_by_team
 from core.tasks import load_tasks, update_task_reminder
 from core.messages import get_random_message
 from bot.helpers import send_message, send_buttons
+from bot.handler import send_daily, send_week  # اضافه برای کال لیست کامل
 from core.logging import log_error
 
 IRAN_TZ = pytz.timezone("Asia/Tehran")
@@ -19,8 +19,7 @@ async def run_daily_jobs():
         members = await get_members_by_team(team)
         for u in members:
             try:
-                # فقط یک پیام منو/لیست امروز توسط handler انجام میشه، اینجا لازم نیست اسپم کنیم
-                await send_message(u["chat_id"], "📌 برای دیدن لیست امروز از دکمه «لیست کارهای امروز» استفاده کن.")
+                await send_daily(u["chat_id"])  # حالا لیست کامل امروز رو می‌فرسته، نه فقط یادآوری
             except Exception as e:
                 log_error(f"Daily job error {u.get('chat_id')}: {e}")
 
@@ -29,7 +28,7 @@ async def run_weekly_jobs():
         members = await get_members_by_team(team)
         for u in members:
             try:
-                await send_message(u["chat_id"], "📌 برای دیدن لیست هفته از دکمه «لیست کارهای هفته» استفاده کن.")
+                await send_week(u["chat_id"])  # حالا لیست کامل هفته رو می‌فرسته، نه فقط یادآوری
             except Exception as e:
                 log_error(f"Weekly job error {u.get('chat_id')}: {e}")
 
