@@ -38,7 +38,7 @@ async def run_weekly_jobs():
                 log_error(f"Weekly job error {u.get('chat_id')}: {e}")
 
 async def check_reminders():
-    async with reminder_lock:  # جدید: lock کن تا همزمان اجرا نشه
+    async with reminder_lock:  # قفل کن تا همزمان اجرا نشه
         tasks = await load_tasks()
         today_str = datetime.now(IRAN_TZ).strftime("%Y-%m-%d")
 
@@ -76,6 +76,7 @@ async def check_reminders():
                 for u in team_members:
                     member = u
                     name = member.get("customname") or member.get("name") or "کاربر"  # اولویت customname, بعد name, بعد "کاربر"
+                    log_info(f"Using name for {u['chat_id']}: {name}")  # جدید: لوگ برای چک name
 
                     if delay == -2 and "2day" not in reminders:
                         msg = await get_random_message("دو روز مونده", name=name, title=t["title"], date=t["date_fa"], time=t["time"])
@@ -122,6 +123,5 @@ async def check_reminders():
                                 await update_task_reminder(t["task_id"], "last_sent", today_str)
                             log_info(f"Sent {key} reminder for {t['task_id']}, update ok: {ok}")
                             break
-
             except Exception as e:
                 log_error(f"Reminder error task={t.get('task_id')}: {e}")
