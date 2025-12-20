@@ -6,7 +6,7 @@ import re
 import json
 import pytz
 
-from core.sheets import get_sheet, update_cell
+from core.sheets import get_sheet, update_cell, invalidate  # invalidate اضافه شده
 from core.logging import log_error
 
 TASKS_SHEET = "Tasks"
@@ -21,6 +21,8 @@ COL_DATE_EN   = 2
 COL_DATE_FA   = 3
 COL_TIME      = 5
 COL_TITLE     = 6
+COL_TYPE      = 7  # اضافه برای type (Content Type)
+COL_COMMENT   = 8  # اضافه برای comment
 COL_STATUS    = 9
 COL_DONE      = 17
 COL_REMINDERS = 18
@@ -80,159 +82,86 @@ def parse_jalali_date(date_fa: str):
         return None
     if y < 1200 or y > 1600 or m < 1 or m > 12 or d < 1 or d > 31:
         return None
-    try:
-        return jalali_to_gregorian(y, m, d)
-    except Exception:
-        return None
+    return jalali_to_gregorian(y, m, d)
 
 async def load_tasks():
     rows = await get_sheet(TASKS_SHEET)
     if not rows or len(rows) < 2:
         return []
 
+    out = []
     today = datetime.now(IRAN_TZ).date()
-    tasks = []
 
     for i, row in enumerate(rows[1:], start=2):
-        if len(row) <= COL_REMINDERS:
-            continue
-
-        task_id = clean(row[COL_TASKID])
-        team = normalize_team(row[COL_TEAM])
-        date_fa = clean(row[COL_DATE_FA]).lstrip("'")
-        time_str = clean(row[COL_TIME])
-        title = clean(row[COL_TITLE])
-
-        status = clean(row[COL_STATUS]).lower()
-        done_val = clean(row[COL_DONE]).lower()
-
-        reminders_raw = clean(row[COL_REMINDERS]) or "{}"
-        try:
-            reminders = json.loads(reminders_raw)
-            if not isinstance(reminders, dict):
-                reminders = {}
-        except Exception:
-            reminders = {}
-
-        if not task_id or not team or not title:
-            continue
-
-        deadline = parse_jalali_date(date_fa)
-        if not deadline:
-            # اگر هنوز date_fa خراب بود، حذف نکن، ولی لاگ بزن
-            log_error(f"Deadline parse failed TaskID={task_id} DateFA={date_fa}")
-            continue
-
-        delay = (today - deadline).days
-        is_done = (done_val in ["yes", "y"]) or ("done" in status) or ("انجام" in status)
-
-        tasks.append({
-            "row_index": i,
-            "task_id": task_id,
-            "team": team,
-            "title": title,
-            "date_fa": date_fa,
-            "time": time_str,
-            "deadline": deadline,
-            "delay_days": delay,
-            "done": is_done,
-            "status": status,
-            "reminders": reminders
-        })
-
-    return tasks
-
-async def load_time_sheet():
-    rows = await get_sheet(TIME_SHEET)
-    if not rows or len(rows) < 2:
-        return []
-
-    today = datetime.now(IRAN_TZ).date()
-    tasks = []
-
-    for i, row in enumerate(rows[1:], start=2):
-        if len(row) <= COL_REMINDERS:
-            continue
-
-        task_id = clean(row[COL_TASKID])
-        team = normalize_team(row[COL_TEAM])
-        date_fa = clean(row[COL_DATE_FA]).lstrip("'")
-        time_str = clean(row[COL_TIME])
-        title = clean(row[COL_TITLE])
-
-        # دینامیک کردن ستون status بر اساس تیم
-        status_col_map = {
-            'production': 7,  # 0-based برای ستون 8
-            'aiproduction': 12,  # 0-based برای ستون 13
-            'digital': 17   # 0-based برای ستون 18
-        }
-        status_col = status_col_map.get(team, 9)  # default به 9 اگر تیم پیدا نشد
-        status = clean(row[status_col]).lower() if len(row) > status_col else ""
-
-        done_val = clean(row[COL_DONE]).lower()
-
-        reminders_raw = clean(row[COL_REMINDERS]) or "{}"
-        try:
-            reminders = json.loads(reminders_raw)
-            if not isinstance(reminders, dict):
-                reminders = {}
-        except Exception:
-            reminders = {}
-
+        task_id = clean(row[COL_TASKID]) if len(row) > COL_TASKID else ""
         if not task_id:
             continue
 
-        deadline = parse_jalali_date(date_fa)
-        if not deadline:
-            log_error(f"Deadline parse failed TaskID={task_id} DateFA={date_fa}")
+        date_fa = clean(row[COL_DATE_FA]) if len(row) > COL_DATE_FA else ""
+        date_en = parse_jalali_date(date_fa)
+
+        if not date_en:
             continue
 
-        delay = (today - deadline).days
-        is_done = (done_val in ["yes", "y"]) or ("done" in status) or ("انجام" in status)
+        delay_days = (today - date_en).days if date_en else 0
 
-        tasks.append({
+        reminders_str = clean(row[COL_REMINDERS]) if len(row) > COL_REMINDERS else "{}"
+        try:
+            reminders = json.loads(reminders_str)
+        except json.JSONDecodeError:
+            reminders = {}
+
+        out.append({
+            "row_index": i,
+            "task_id": task_id,
+            "team": normalize_team(row[COL_TEAM]) if len(row) > COL_TEAM else "",
+            "date_en": date_en,
+            "date_fa": date_fa,
+            "time": clean(row[COL_TIME]) if len(row) > COL_TIME else "",
+            "title": clean(row[COL_TITLE]) if len(row) > COL_TITLE else "",
+            "type": clean(row[COL_TYPE]) if len(row) > COL_TYPE else "",  # اضافه برای type
+            "comment": clean(row[COL_COMMENT]) if len(row) > COL_COMMENT else "",  # اضافه برای comment
+            "status": clean(row[COL_STATUS]) if len(row) > COL_STATUS else "In Progress",
+            "done": (clean(row[COL_DONE]).lower() == "yes") if len(row) > COL_DONE else False,
+            "reminders": reminders,
+            "delay_days": delay_days,
+        })
+    return out
+
+async def load_time_sheet():
+    rows = await get_sheet(TIME_SHEET)
+    if not rows or len(row) < 2:
+        return []
+
+    out = []
+    for i, row in enumerate(rows[1:], start=2):
+        # فرض بر این که ساختار Time Sheet مشابه Tasks هست، اما تنظیم کن اگر متفاوت
+        task_id = clean(row[0])  # adjust columns as per your Time Sheet
+        team = normalize_team(row[8] or row[13] or row[18])  # team columns
+        out.append({
             "row_index": i,
             "task_id": task_id,
             "team": team,
-            "title": title,
-            "date_fa": date_fa,
-            "time": time_str,
-            "deadline": deadline,
-            "delay_days": delay,
-            "done": is_done,
-            "status": status,
-            "reminders": reminders
         })
-
-    return tasks
-
-def _by_team(team: str, tasks: list):
-    t = normalize_team(team)
-    if t == "all":
-        return tasks
-    return [x for x in tasks if x["team"] == t]
+    return out
 
 async def get_tasks_today(team: str):
     tasks = await load_tasks()
     today = datetime.now(IRAN_TZ).date()
-    return [t for t in _by_team(team, tasks) if t["deadline"] == today and not t["done"]]
+    return [t for t in tasks if t["date_en"] == today and normalize_team(t["team"]) == normalize_team(team) and not t["done"]]
 
 async def get_tasks_week(team: str):
     tasks = await load_tasks()
     today = datetime.now(IRAN_TZ).date()
-    end = today + timedelta(days=7)
-    out = [t for t in _by_team(team, tasks) if today <= t["deadline"] <= end and not t["done"]]
-    out.sort(key=lambda x: x["deadline"])
-    return out
+    week_end = today + timedelta(days=7)
+    return [t for t in tasks if today <= t["date_en"] <= week_end and normalize_team(t["team"]) == normalize_team(team)]
 
 async def get_tasks_not_done(team: str):
     tasks = await load_tasks()
-    out = [t for t in _by_team(team, tasks) if not t["done"] and t["delay_days"] > 0]
-    out.sort(key=lambda x: x["deadline"])
-    return out
+    today = datetime.now(IRAN_TZ).date()
+    return [t for t in tasks if t["date_en"] < today and normalize_team(t["team"]) == normalize_team(team) and not t["done"]]
 
 async def update_task_status(task_id: str, new_status: str):
-    # آپدیت Tasks
     tasks = await load_tasks()
     updated_tasks = False
     for t in tasks:
@@ -270,7 +199,10 @@ async def set_task_reminders_json(task_id: str, reminders_dict: dict):
     for t in tasks:
         if t["task_id"] == task_id:
             payload = json.dumps(reminders_dict or {}, ensure_ascii=False)
-            return await update_cell(TASKS_SHEET, t["row_index"], COL_REMINDERS + 1, payload)
+            ok = await update_cell(TASKS_SHEET, t["row_index"], COL_REMINDERS + 1, payload)
+            if ok:
+                invalidate("Tasks")  # جدید: بعد آپدیت، کش رو invalidate کن تا تکرار جلوگیری بشه
+            return ok
     return False
 
 async def update_task_reminder(task_id: str, key: str, value):
@@ -279,5 +211,8 @@ async def update_task_reminder(task_id: str, key: str, value):
         if t["task_id"] == task_id:
             reminders = t["reminders"] or {}
             reminders[key] = value
-            return await set_task_reminders_json(task_id, reminders)
+            ok = await set_task_reminders_json(task_id, reminders)
+            if ok:
+                invalidate("Tasks")  # جدید: بعد آپدیت، کش رو invalidate کن
+            return ok
     return False
