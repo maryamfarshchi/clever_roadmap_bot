@@ -1,4 +1,4 @@
-ر# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 
 import os
 import sys
@@ -128,3 +128,4 @@ async def run_reminders():
     except Exception as e:
         log_error(f"REMINDERS JOB ERROR: {e}")
         return {"ok": False, "error": str(e)}
+
