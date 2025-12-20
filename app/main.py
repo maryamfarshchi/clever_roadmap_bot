@@ -1,3 +1,4 @@
+# app/main.py
 # -*- coding: utf-8 -*-
 
 import os
@@ -17,16 +18,12 @@ from bot.handler import process_update
 from scheduler.job import run_weekly_jobs, run_daily_jobs, check_reminders
 from core.logging import log_error, log_info
 from core.sheets import sync_tasks
+from scheduler.job import check_reminders  # برای کال در sync_tasks_endpoint
 
 app = FastAPI()
 IRAN_TZ = pytz.timezone("Asia/Tehran")
 
 scheduler = AsyncIOScheduler(timezone=IRAN_TZ)
-
-# اضافه شده برای فیکس 404: endpoint کوچک برای ping خارجی (response کوچک "OK")
-@app.get("/ping")
-async def ping():
-    return "OK"
 
 def setup_jobs():
     # Daily summary message (you can change hour/minute)
@@ -95,6 +92,7 @@ async def webhook(request: Request):
 async def sync_tasks_endpoint():
     try:
         ok = await sync_tasks()
+        await check_reminders()  # اضافه شده: بعد سینک، ریمایندرها رو چک کن تا تسک‌های جدید پوشش داده بشن
         return {"ok": bool(ok)}
     except Exception as e:
         log_error(f"SYNC ERROR: {e}")
