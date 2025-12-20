@@ -73,10 +73,12 @@ async def check_reminders():
                     log_info(f"Sent escalated reminder for {t['task_id']}, update ok: {ok}")
                     continue  # بعد از ارسال، ادامه بده تا تکرار نشه
 
+                sent = False  # جدید: فلگ برای چک ارسال در این اجرا
+                key = None  # جدید: برای ذخیره key آپدیت
                 for u in team_members:
                     member = u
                     name = member.get("customname") or member.get("name") or "کاربر"  # اولویت customname, بعد name, بعد "کاربر"
-                    log_info(f"Using name for {u['chat_id']}: {name}")  # جدید: لوگ برای چک name
+                    log_info(f"Using name for {u['chat_id']}: {name}")  # لوگ برای چک name
 
                     if delay == -2 and "2day" not in reminders:
                         msg = await get_random_message("دو روز مونده", name=name, title=t["title"], date=t["date_fa"], time=t["time"])
@@ -85,12 +87,8 @@ async def check_reminders():
                         if t.get("comment"):
                             msg += f"\n💬 <b>توضیحات بیشتر تسک:</b> {t['comment']}"
                         await send_message(u["chat_id"], msg)
-                        ok = await update_task_reminder(t["task_id"], "2day", today_str)
-                        if ok:
-                            await update_task_reminder(t["task_id"], "last_sent", today_str)
-                        log_info(f"Sent 2day reminder for {t['task_id']}, update ok: {ok}")
-                        # جدید: بعد ارسال، break کن تا برای این تسک بیشتر ادامه نده
-                        break
+                        sent = True
+                        key = "2day"
 
                     if delay == 0 and "deadline" not in reminders:
                         msg = await get_random_message("روز تحویل", name=name, title=t["title"], date=t["date_fa"], time=t["time"])
@@ -103,25 +101,27 @@ async def check_reminders():
                             [{"text": "ندادم ⏰", "callback_data": f"notyet|{t['task_id']}"}],
                         ]
                         await send_buttons(u["chat_id"], msg, buttons)
-                        ok = await update_task_reminder(t["task_id"], "deadline", today_str)
-                        if ok:
-                            await update_task_reminder(t["task_id"], "last_sent", today_str)
-                        log_info(f"Sent deadline reminder for {t['task_id']}, update ok: {ok}")
-                        break
+                        sent = True
+                        key = "deadline"
 
                     if 1 <= delay <= 5:
-                        key = f"over_{delay}"
-                        if key not in reminders:
+                        temp_key = f"over_{delay}"
+                        if temp_key not in reminders:
                             msg = await get_random_message("یادآوری تاخیر", name=name, title=t["title"], date=t["date_fa"], delay=delay)
                             if t.get("type"):
                                 msg += f"\n📝 <b>سبک محتوا:</b> {t['type']}"
                             if t.get("comment"):
                                 msg += f"\n💬 <b>توضیحات بیشتر تسک:</b> {t['comment']}"
                             await send_message(u["chat_id"], msg)
-                            ok = await update_task_reminder(t["task_id"], key, today_str)
-                            if ok:
-                                await update_task_reminder(t["task_id"], "last_sent", today_str)
-                            log_info(f"Sent {key} reminder for {t['task_id']}, update ok: {ok}")
-                            break
+                            sent = True
+                            key = temp_key
+
+                # جدید: آپدیت reminders فقط اگر چیزی ارسال شده باشه، خارج از لوپ برای جلوگیری از تکرار آپدیت
+                if sent and key:
+                    ok = await update_task_reminder(t["task_id"], key, today_str)
+                    if ok:
+                        await update_task_reminder(t["task_id"], "last_sent", today_str)
+                    log_info(f"Sent {key} reminder for {t['task_id']}, update ok: {ok}")
+
             except Exception as e:
                 log_error(f"Reminder error task={t.get('task_id')}: {e}")
