@@ -70,7 +70,7 @@ async def check_reminders():
 
                 sent = False
                 if delay > 5 and reminder_type == "escalated" and admins and current_hour == 8:  # فقط صبح برای هشدار مدیر
-                    msg = await get_random_message("هشدار مدیر", name=name, title=t["title"], date_fa=t["date_fa"], days=delay, time=t["time"], team=t["team"])
+                    msg = await get_random_message("هشدار مدیر", title=t["title"], date_fa=t["date_fa"], days=delay, time=t["time"] or "", team=t["team"])
                     if t.get("type"):
                         msg += f"\n📝 <b>سبک محتوا:</b> {t['type']}"
                     if t.get("comment"):
@@ -88,7 +88,7 @@ async def check_reminders():
                     log_info(f"Using name for {u['chat_id']}: {name}")
 
                     if reminder_type and reminder_type not in reminders:
-                        msg = await get_random_message(reminder_type.replace("over_", "یادآوری تاخیر"), name=name, title=t["title"], date_fa=t["date_fa"], days=abs(delay) if delay < 0 else delay, time=t["time"])
+                        msg = await get_random_message(reminder_type.replace("over_", "یادآوری تاخیر"), name=name, title=t["title"], date_fa=t["date_fa"], days=abs(delay) if delay < 0 else delay, time=t["time"] or "")
                         if t.get("type"):
                             msg += f"\n📝 <b>سبک محتوا:</b> {t['type']}"
                         if t.get("comment"):
