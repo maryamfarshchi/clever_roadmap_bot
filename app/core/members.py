@@ -1,7 +1,7 @@
 # app/core/members.py
 # -*- coding: utf-8 -*-
 
-from core.sheets import get_sheet, append_row, update_cell
+from core.sheets import get_sheet, append_row, update_cell, invalidate  # invalidate اضافه شده
 
 MEMBERS_SHEET = "members"
 
@@ -36,11 +36,15 @@ async def save_or_add_member(chat_id, name=None, username=None, team=None):
     member = await find_member(chat_id)
     if member:
         if team:
-            await update_cell(MEMBERS_SHEET, member["row"], 4, team)  # col 4 team (1-based)
+            ok = await update_cell(MEMBERS_SHEET, member["row"], 4, team)  # col 4 team (1-based)
+            if ok:
+                invalidate(MEMBERS_SHEET)  # جدید: بعد آپدیت، کش members رو invalidate کن
         return await find_member(chat_id)
 
     new_row = [chat_id, name or "", username or "", team or "", "", "No"]
-    await append_row(MEMBERS_SHEET, new_row)
+    ok = await append_row(MEMBERS_SHEET, new_row)
+    if ok:
+        invalidate(MEMBERS_SHEET)
     return await find_member(chat_id)
 
 async def get_members_by_team(team: str):
@@ -52,12 +56,12 @@ async def get_members_by_team(team: str):
     out = []
     for row in rows[1:]:
         row_team = norm(row[3]) if len(row) > 3 else ""
-        if t == "all" or row_team == t:  # فیکس: اگر "all" بود، همه رو برگردون بدون شرط row_team == t فقط برای "all"
+        if row_team == t:
             out.append({
                 "chat_id": clean(row[0]) if len(row) > 0 else "",
                 "name": clean(row[1]) if len(row) > 1 else "",
                 "username": clean(row[2]) if len(row) > 2 else "",
                 "team": clean(row[3]) if len(row) > 3 else "",
-                "customname": clean(row[4]) if len(row) > 4 else "",  # اضافه شده: customname رو برگردون
+                "customname": clean(row[4]) if len(row) > 4 else "",
             })
     return out
