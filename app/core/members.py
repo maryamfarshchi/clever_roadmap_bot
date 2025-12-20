@@ -52,11 +52,12 @@ async def get_members_by_team(team: str):
     out = []
     for row in rows[1:]:
         row_team = norm(row[3]) if len(row) > 3 else ""
-        if row_team == t:
+        if row_team == t or t == "all":  # اگر "ALL" بود، همه رو برگردون
             out.append({
                 "chat_id": clean(row[0]) if len(row) > 0 else "",
                 "name": clean(row[1]) if len(row) > 1 else "",
                 "username": clean(row[2]) if len(row) > 2 else "",
                 "team": clean(row[3]) if len(row) > 3 else "",
+                "customname": clean(row[4]) if len(row) > 4 else "",  # اضافه شده: customname رو برگردون
             })
     return out
