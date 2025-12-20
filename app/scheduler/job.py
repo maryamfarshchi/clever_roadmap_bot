@@ -70,6 +70,8 @@ async def check_reminders():
                     ok = await update_task_reminder(t["task_id"], "escalated", today_str)
                     if ok:
                         await update_task_reminder(t["task_id"], "last_sent", today_str)
+                    else:
+                        log_error(f"Failed to update escalated for {t['task_id']}")
                     log_info(f"Sent escalated reminder for {t['task_id']}, update ok: {ok}")
                     continue  # بعد از ارسال، ادامه بده تا تکرار نشه
 
@@ -121,6 +123,8 @@ async def check_reminders():
                     ok = await update_task_reminder(t["task_id"], key, today_str)
                     if ok:
                         await update_task_reminder(t["task_id"], "last_sent", today_str)
+                    else:
+                        log_error(f"Failed to update {key} for {t['task_id']}")
                     log_info(f"Sent {key} reminder for {t['task_id']}, update ok: {ok}")
 
             except Exception as e:
