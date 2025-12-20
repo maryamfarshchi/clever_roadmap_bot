@@ -17,7 +17,7 @@ if APP_DIR not in sys.path:
 from bot.handler import process_update
 from scheduler.job import run_weekly_jobs, run_daily_jobs, check_reminders
 from core.logging import log_error, log_info
-from core.sheets import sync_tasks
+from core.sheets import sync_tasks, invalidate  # invalidate اضافه شده
 from scheduler.job import check_reminders  # برای کال در sync_tasks_endpoint
 
 app = FastAPI()
@@ -53,10 +53,10 @@ def setup_jobs():
         misfire_grace_time=600,
     )
 
-    # Reminder checker
+    # Reminder checker (تغییر به ساعتی برای پوشش بهتر)
     scheduler.add_job(
         check_reminders,
-        CronTrigger(hour=10, minute=0),
+        CronTrigger(minute=0),  # هر ساعت (دقیقه ۰)
         id="reminders_jobs",
         replace_existing=True,
         max_instances=1,
@@ -94,11 +94,16 @@ async def webhook(request: Request):
         return {"ok": False, "error": str(e)}
 
 @app.post("/sync_tasks")
-async def sync_tasks_endpoint():
+async def sync_tasks_endpoint(request: Request):
+    body = await request.json() or {}
+    from_google = body.get("from_google", False)  # جدید: چک کن از گوگل اومده یا نه
     try:
-        ok = await sync_tasks()
-        await check_reminders()  # اضافه شده: بعد سینک، ریمایندرها رو چک کن تا تسک‌های جدید پوشش داده بشن
-        return {"ok": bool(ok)}
+        if not from_google:
+            ok = await sync_tasks()  # فقط اگر از گوگل نبود، سینک کن (پست به گوگل)
+        else:
+            invalidate("Tasks")  # اگر از گوگل بود، فقط کش Tasks رو ریفرش کن
+        await check_reminders()  # همیشه بعدش ریمایندرها رو چک کن (برای پوشش تسک‌های جدید)
+        return {"ok": True}
     except Exception as e:
         log_error(f"SYNC ERROR: {e}")
         return {"ok": False, "error": str(e)}
