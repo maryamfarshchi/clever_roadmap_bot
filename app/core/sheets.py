@@ -59,7 +59,7 @@ async def update_cell(sheet: str, row: int, col: int, value):
                 data = await r.json()
                 ok = bool(data.get("ok"))
                 if ok:
-                    invalidate(sheet)
+                    invalidate(sheet)  # جدید: بعد آپدیت، کش رو invalidate کن
                 return ok
     except Exception as e:
         log_error(f"update_cell ERROR: {e}")
