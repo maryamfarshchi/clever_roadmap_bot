@@ -42,7 +42,7 @@ async def check_reminders():
         tasks = await load_tasks()
         today_str = datetime.now(IRAN_TZ).strftime("%Y-%m-%d")
 
-        admins = await get_members_by_team("ALL")  # فرض بر این که تیم "ALL" برای ادمین‌ها داری؛ اگر نه، تغییر بده
+        admins = await get_members_by_team("ALL")  # فقط کسانی که تیم "ALL" دارند
 
         for t in tasks:
             if t["done"]:
@@ -58,7 +58,7 @@ async def check_reminders():
                 if sent_today:
                     continue
 
-                # برای هشدار مدیر (خارج از لوپ member، چون به همه ادمین‌ها می‌ره)
+                # برای هشدار مدیر: فقط اگر صبح باشه (از scheduler صبح ران می‌شه)، و فقط به ALL
                 if delay > 5 and "escalated" not in reminders and admins:
                     msg = await get_random_message("هشدار مدیر", title=t["title"], team=t["team"], date=t["date_fa"], delay=delay)
                     if t.get("type"):
@@ -73,17 +73,17 @@ async def check_reminders():
                     else:
                         log_error(f"Failed to update escalated for {t['task_id']}")
                     log_info(f"Sent escalated reminder for {t['task_id']}, update ok: {ok}")
-                    continue  # بعد از ارسال، ادامه بده تا تکرار نشه
+                    continue
 
-                sent = False  # جدید: فلگ برای چک ارسال در این اجرا
-                key = None  # جدید: برای ذخیره key آپدیت
+                sent = False  # فلگ برای چک ارسال در این اجرا
+                key = None  # برای ذخیره key آپدیت
                 for u in team_members:
                     member = u
                     name = member.get("customname") or member.get("name") or "کاربر"  # اولویت customname, بعد name, بعد "کاربر"
                     log_info(f"Using name for {u['chat_id']}: {name}")  # لوگ برای چک name
 
                     if delay == -2 and "2day" not in reminders:
-                        msg = await get_random_message("دو روز مونده", name=name, title=t["title"], date=t["date_fa"], time=t["time"])
+                        msg = await get_random_message("دو روز مونده", name=name, title=t["title"], date=t["date_fa"], time=t["time"], days=abs(delay) if delay < 0 else delay)
                         if t.get("type"):
                             msg += f"\n📝 <b>سبک محتوا:</b> {t['type']}"
                         if t.get("comment"):
@@ -93,7 +93,7 @@ async def check_reminders():
                         key = "2day"
 
                     if delay == 0 and "deadline" not in reminders:
-                        msg = await get_random_message("روز تحویل", name=name, title=t["title"], date=t["date_fa"], time=t["time"])
+                        msg = await get_random_message("روز تحویل", name=name, title=t["title"], date=t["date_fa"], time=t["time"], days=abs(delay) if delay < 0 else delay)
                         if t.get("type"):
                             msg += f"\n📝 <b>سبک محتوا:</b> {t['type']}"
                         if t.get("comment"):
@@ -109,7 +109,7 @@ async def check_reminders():
                     if 1 <= delay <= 5:
                         temp_key = f"over_{delay}"
                         if temp_key not in reminders:
-                            msg = await get_random_message("یادآوری تاخیر", name=name, title=t["title"], date=t["date_fa"], delay=delay)
+                            msg = await get_random_message("یادآوری تاخیر", name=name, title=t["title"], date=t["date_fa"], time=t["time"], delay=delay, days=delay)
                             if t.get("type"):
                                 msg += f"\n📝 <b>سبک محتوا:</b> {t['type']}"
                             if t.get("comment"):
@@ -118,7 +118,7 @@ async def check_reminders():
                             sent = True
                             key = temp_key
 
-                # جدید: آپدیت reminders فقط اگر چیزی ارسال شده باشه، خارج از لوپ برای جلوگیری از تکرار آپدیت
+                # آپدیت reminders فقط اگر چیزی ارسال شده باشه، خارج از لوپ برای جلوگیری از تکرار آپدیت
                 if sent and key:
                     ok = await update_task_reminder(t["task_id"], key, today_str)
                     if ok:
