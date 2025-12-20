@@ -1,4 +1,3 @@
-# app/main.py
 # -*- coding: utf-8 -*-
 
 import os
@@ -23,6 +22,11 @@ app = FastAPI()
 IRAN_TZ = pytz.timezone("Asia/Tehran")
 
 scheduler = AsyncIOScheduler(timezone=IRAN_TZ)
+
+# اضافه شده برای فیکس 404: endpoint کوچک برای ping خارجی (response کوچک "OK")
+@app.get("/ping")
+async def ping():
+    return "OK"
 
 def setup_jobs():
     # Daily summary message (you can change hour/minute)
