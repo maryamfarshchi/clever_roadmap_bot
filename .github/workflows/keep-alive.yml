@@ -1,0 +1,13 @@
+name: Keep Render Alive
+
+on:
+  schedule:
+    - cron: '*/14 * * * *'  # هر ۱۴ دقیقه (UTC) - برای همیشه up بودن
+  workflow_dispatch:  # برای تست manual
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render Service
+        run: curl -f -s -o /dev/null "https://clever-roadmap-bot.onrender.com/ping"  # URL سرویس‌ت (یا / اگر /ping نداری)
