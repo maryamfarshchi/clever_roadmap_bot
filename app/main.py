@@ -9,7 +9,6 @@ from fastapi import FastAPI, Request
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-# ✅ make /app importable: so "import bot", "import core", "import scheduler" works on Render
 APP_DIR = os.path.dirname(__file__)
 if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
@@ -50,7 +49,6 @@ def setup_jobs():
         misfire_grace_time=600,
     )
 
-    # Reminder checker: برای همه ریمایندرها، فقط صبح (ساعت 8)
     scheduler.add_job(
         check_reminders,
         CronTrigger(hour=8, minute=0),
@@ -99,7 +97,8 @@ async def sync_tasks_endpoint(request: Request):
             ok = await sync_tasks()
         else:
             invalidate("Tasks")
-        await check_reminders()  # همیشه چک کن، اما با توجه به scheduler صبح، و چک sent_today، فوری فقط اگر قبلا فرستاده نشده
+            invalidate("members")  # جدید: invalidate members هم برای آپدیت نام‌ها
+        await check_reminders()  # همیشه چک کن، اما با چک سخت، فقط اگر لازم باشه بفرست
         return {"ok": True}
     except Exception as e:
         log_error(f"SYNC ERROR: {e}")
