@@ -50,10 +50,10 @@ def setup_jobs():
         misfire_grace_time=600,
     )
 
-    # Reminder checker: برگشت به روزانه (ساعت ۱۰ صبح) برای جلوگیری از تکرار، اما فوری از onEdit هنوز کار می‌کنه
+    # Reminder checker: برای همه ریمایندرها، فقط صبح (ساعت 8)
     scheduler.add_job(
         check_reminders,
-        CronTrigger(hour=10, minute=0),
+        CronTrigger(hour=8, minute=0),
         id="reminders_jobs",
         replace_existing=True,
         max_instances=1,
@@ -99,7 +99,7 @@ async def sync_tasks_endpoint(request: Request):
             ok = await sync_tasks()
         else:
             invalidate("Tasks")
-        await check_reminders()
+        await check_reminders()  # همیشه چک کن، اما با توجه به scheduler صبح، و چک sent_today، فوری فقط اگر قبلا فرستاده نشده
         return {"ok": True}
     except Exception as e:
         log_error(f"SYNC ERROR: {e}")
