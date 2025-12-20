@@ -1,5 +1,4 @@
-# app/main.py
-# -*- coding: utf-8 -*-
+ر# -*- coding: utf-8 -*-
 
 import os
 import sys
@@ -24,6 +23,11 @@ app = FastAPI()
 IRAN_TZ = pytz.timezone("Asia/Tehran")
 
 scheduler = AsyncIOScheduler(timezone=IRAN_TZ)
+
+# اضافه شده برای فیکس 404: endpoint کوچک برای ping از GitHub Actions
+@app.get("/ping")
+async def ping():
+    return "OK"  # response کوچک برای wake up سرویس
 
 def setup_jobs():
     # Daily summary message (you can change hour/minute)
