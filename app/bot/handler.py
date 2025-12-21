@@ -7,49 +7,59 @@ from bot.helpers import send_message, send_buttons, send_reply_keyboard
 from bot.keyboards import main_keyboard, team_inline_keyboard
 
 from core.members import find_member, save_or_add_member
-from core.tasks import get_tasks_today, get_tasks_week, get_tasks_not_done, update_task_status
+from core.tasks import (
+    get_tasks_today,
+    get_tasks_next_7_days,
+    get_tasks_not_done,
+    update_task_status,
+    format_task_block,
+    group_tasks_by_date,
+)
 from core.messages import get_welcome_message
 
-# ✅ اگر تلگرام/رندر update را دوباره فرستاد، دوباره پردازش نشود
 processed_updates = TTLCache(maxsize=20000, ttl=600)  # 10 دقیقه
 
-def _task_text(t, show_delay=False):
-    extra = ""
-    if show_delay and t.get("delay_days", 0) > 0:
-        extra = f"\n⏰ <b>{t['delay_days']} روز تاخیر</b>"
-    return f"<b>{t['title']}</b>\n📅 {t['date_fa']} ⏰ {t['time'] or ''}{extra}"
-
-async def send_daily(chat_id):
+async def send_daily_interactive(chat_id):
     member = await find_member(chat_id)
     if not member or not member.get("team"):
         return
 
     tasks = await get_tasks_today(member["team"])
     if not tasks:
-        await send_message(chat_id, "امروز تسکی نداری ✅")
+        await send_message(chat_id, "✅ امروز تسکی نداری")
         return
 
-    await send_message(chat_id, f"🌅 <b>کارهای امروز ({len(tasks)}):</b>")
+    name = member.get("customname") or member.get("name") or "رفیق"
+    await send_message(chat_id, f"☀️ <b>{name}</b> | لیست کارهای امروزت ({len(tasks)}):")
+
     for t in tasks:
         buttons = [
             [{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}],
-            [{"text": "ندادم ⏰", "callback_data": f"notyet|{t['task_id']}"}],
+            [{"text": "تحویل ندادم ⏰", "callback_data": f"notyet|{t['task_id']}"}],
         ]
-        await send_buttons(chat_id, _task_text(t), buttons)
+        await send_buttons(chat_id, format_task_block(t), buttons)
 
-async def send_week(chat_id):
+async def send_week_button(chat_id):
     member = await find_member(chat_id)
     if not member or not member.get("team"):
         return
 
-    tasks = await get_tasks_week(member["team"])
+    tasks = await get_tasks_next_7_days(member["team"])
+    name = member.get("customname") or member.get("name") or "رفیق"
+
     if not tasks:
-        await send_message(chat_id, "برای ۷ روز آینده تسکی نداری 👌")
+        await send_message(chat_id, f"📅 <b>{name}</b> | برای ۷ روز آینده تسکی نداری 👌")
         return
 
-    await send_message(chat_id, f"📅 <b>کارهای ۷ روز آینده ({len(tasks)}):</b>")
-    for t in tasks:
-        await send_message(chat_id, _task_text(t))
+    blocks = [f"📅 <b>{name}</b> | کارهای ۷ روز آینده ({len(tasks)}):"]
+    for d, items in group_tasks_by_date(tasks):
+        day = items[0].get("day_fa", "")
+        date_fa = items[0].get("date_fa", "")
+        blocks.append(f"\n🗓️ <b>{day} | {date_fa}</b>")
+        for t in items:
+            blocks.append(f"• {t['title']}" + (f" ⏰ {t['time']}" if t.get("time") else ""))
+
+    await send_message(chat_id, "\n".join(blocks))
 
 async def send_not_done(chat_id):
     member = await find_member(chat_id)
@@ -61,13 +71,15 @@ async def send_not_done(chat_id):
         await send_message(chat_id, "✅🔥 تسک انجام نشده‌ای نداری")
         return
 
-    await send_message(chat_id, f"⚠️ <b>تسک‌های انجام نشده ({len(tasks)}):</b>")
+    name = member.get("customname") or member.get("name") or "رفیق"
+    await send_message(chat_id, f"⚠️ <b>{name}</b> | تسک‌های انجام نشده ({len(tasks)}):")
+
     for t in tasks:
         buttons = [
             [{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}],
-            [{"text": "ندادم ⏰", "callback_data": f"notyet|{t['task_id']}"}],
+            [{"text": "تحویل ندادم ⏰", "callback_data": f"notyet|{t['task_id']}"}],
         ]
-        await send_buttons(chat_id, _task_text(t, show_delay=True), buttons)
+        await send_buttons(chat_id, format_task_block(t, include_delay=True), buttons)
 
 async def process_update(update: dict):
     upd_id = update.get("update_id")
@@ -76,7 +88,7 @@ async def process_update(update: dict):
             return
         processed_updates[upd_id] = True
 
-    # Callback (دکمه‌های inline)
+    # Callback (inline)
     if "callback_query" in update:
         cb = update["callback_query"]
         data = cb.get("data", "")
@@ -85,11 +97,11 @@ async def process_update(update: dict):
         if data.startswith("done|"):
             task_id = data.split("|", 1)[1]
             ok = await update_task_status(task_id, "Done")
-            await send_message(chat_id, "✅ ثبت شد (Done)" if ok else "❌ Task پیدا نشد")
+            await send_message(chat_id, "✅ ثبت شد (Done)" if ok else "❌ Task پیدا نشد یا آپدیت نشد")
             return
 
         if data.startswith("notyet|"):
-            await send_message(chat_id, "باشه ⏰")
+            await send_message(chat_id, "باشه ⏰ (یادآوری‌های بعدی همچنان ادامه دارن)")
             return
 
         if data.startswith("team|"):
@@ -98,7 +110,7 @@ async def process_update(update: dict):
             await send_reply_keyboard(chat_id, "منوی اصلی:", main_keyboard())
             return
 
-    # Message (دکمه‌های reply)
+    # Message (reply keyboard)
     msg = update.get("message")
     if not msg:
         return
@@ -126,11 +138,11 @@ async def process_update(update: dict):
         return
 
     if text == "لیست کارهای امروز":
-        await send_daily(chat_id)
+        await send_daily_interactive(chat_id)
         return
 
     if text == "لیست کارهای هفته":
-        await send_week(chat_id)
+        await send_week_button(chat_id)
         return
 
     if text == "تسک های انجام نشده":
