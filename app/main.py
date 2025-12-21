@@ -17,21 +17,33 @@ from bot.handler import process_update
 from scheduler.job import run_weekly_jobs, run_daily_jobs, check_reminders
 from core.logging import log_error, log_info
 from core.sheets import sync_tasks, invalidate
-from scheduler.job import check_reminders  # برای کال در sync_tasks_endpoint
 
 app = FastAPI()
 IRAN_TZ = pytz.timezone("Asia/Tehran")
-
 scheduler = AsyncIOScheduler(timezone=IRAN_TZ)
 
 @app.get("/ping")
 async def ping():
     return "OK"
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except:
+        return default
+
 def setup_jobs():
+    # قابل تنظیم با env
+    daily_hour = _env_int("DAILY_HOUR", 8)
+    daily_min  = _env_int("DAILY_MINUTE", 0)
+
+    weekly_hour = _env_int("WEEKLY_HOUR", 9)
+    weekly_min  = _env_int("WEEKLY_MINUTE", 0)
+
+    # Daily summary
     scheduler.add_job(
         run_daily_jobs,
-        CronTrigger(hour=8, minute=0),
+        CronTrigger(hour=daily_hour, minute=daily_min),
         id="daily_jobs",
         replace_existing=True,
         max_instances=1,
@@ -39,9 +51,10 @@ def setup_jobs():
         misfire_grace_time=600,
     )
 
+    # Weekly summary (Saturday)
     scheduler.add_job(
         run_weekly_jobs,
-        CronTrigger(day_of_week="sat", hour=9, minute=0),
+        CronTrigger(day_of_week="sat", hour=weekly_hour, minute=weekly_min),
         id="weekly_jobs",
         replace_existing=True,
         max_instances=1,
@@ -49,9 +62,10 @@ def setup_jobs():
         misfire_grace_time=600,
     )
 
+    # Reminders: هر 10 دقیقه (برای فهمیدن تغییرات بعد از صبح)
     scheduler.add_job(
         check_reminders,
-        CronTrigger(hour=8, minute=0),
+        CronTrigger(minute="*/10"),
         id="reminders_jobs",
         replace_existing=True,
         max_instances=1,
@@ -97,8 +111,9 @@ async def sync_tasks_endpoint(request: Request):
             ok = await sync_tasks()
         else:
             invalidate("Tasks")
-            invalidate("members")  # جدید: invalidate members هم برای آپدیت نام‌ها
-        await check_reminders()  # همیشه چک کن، اما با چک سخت، فقط اگر لازم باشه بفرست
+            invalidate("members")
+        # بعد sync همون لحظه ریمایندرها رو هم چک کن
+        await check_reminders()
         return {"ok": True}
     except Exception as e:
         log_error(f"SYNC ERROR: {e}")
