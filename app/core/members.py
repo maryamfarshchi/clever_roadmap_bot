@@ -1,15 +1,21 @@
 # app/core/members.py
 # -*- coding: utf-8 -*-
 
-from core.sheets import get_sheet, append_row, update_cell, invalidate  # invalidate اضافه شده
+from core.sheets import get_sheet, append_row, update_cell, invalidate
 
 MEMBERS_SHEET = "members"
 
 def clean(s):
     return str(s or "").strip()
 
-def norm(s):
-    return clean(s).lower()
+def normalize_team(s: str) -> str:
+    """
+    هم‌راستا با core/tasks.normalize_team
+    """
+    v = clean(s).lower()
+    v = v.replace("ai production", "aiproduction")
+    v = v.replace(" ", "")
+    return v
 
 async def find_member(chat_id):
     rows = await get_sheet(MEMBERS_SHEET)
@@ -38,7 +44,7 @@ async def save_or_add_member(chat_id, name=None, username=None, team=None):
         if team:
             ok = await update_cell(MEMBERS_SHEET, member["row"], 4, team)  # col 4 team (1-based)
             if ok:
-                invalidate(MEMBERS_SHEET)  # جدید: بعد آپدیت، کش members رو invalidate کن
+                invalidate(MEMBERS_SHEET)
         return await find_member(chat_id)
 
     new_row = [chat_id, name or "", username or "", team or "", "", "No"]
@@ -52,10 +58,10 @@ async def get_members_by_team(team: str):
     if not rows or len(rows) < 2:
         return []
 
-    t = norm(team)
+    t = normalize_team(team)
     out = []
     for row in rows[1:]:
-        row_team = norm(row[3]) if len(row) > 3 else ""
+        row_team = normalize_team(row[3]) if len(row) > 3 else ""
         if row_team == t:
             out.append({
                 "chat_id": clean(row[0]) if len(row) > 0 else "",
