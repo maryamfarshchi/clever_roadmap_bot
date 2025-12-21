@@ -8,14 +8,8 @@ MEMBERS_SHEET = "members"
 def clean(s):
     return str(s or "").strip()
 
-def normalize_team(s: str) -> str:
-    """
-    هم‌راستا با core/tasks.normalize_team
-    """
-    v = clean(s).lower()
-    v = v.replace("ai production", "aiproduction")
-    v = v.replace(" ", "")
-    return v
+def norm(s):
+    return clean(s).lower()
 
 async def find_member(chat_id):
     rows = await get_sheet(MEMBERS_SHEET)
@@ -41,10 +35,22 @@ async def find_member(chat_id):
 async def save_or_add_member(chat_id, name=None, username=None, team=None):
     member = await find_member(chat_id)
     if member:
-        if team:
-            ok = await update_cell(MEMBERS_SHEET, member["row"], 4, team)  # col 4 team (1-based)
+        # آپدیت name/username در صورت تغییر
+        if name and clean(name) and clean(name) != member.get("name", ""):
+            ok = await update_cell(MEMBERS_SHEET, member["row"], 2, clean(name))
             if ok:
                 invalidate(MEMBERS_SHEET)
+
+        if username is not None and clean(username) != member.get("username", ""):
+            ok = await update_cell(MEMBERS_SHEET, member["row"], 3, clean(username))
+            if ok:
+                invalidate(MEMBERS_SHEET)
+
+        if team and clean(team) and clean(team) != member.get("team", ""):
+            ok = await update_cell(MEMBERS_SHEET, member["row"], 4, clean(team))
+            if ok:
+                invalidate(MEMBERS_SHEET)
+
         return await find_member(chat_id)
 
     new_row = [chat_id, name or "", username or "", team or "", "", "No"]
@@ -53,15 +59,25 @@ async def save_or_add_member(chat_id, name=None, username=None, team=None):
         invalidate(MEMBERS_SHEET)
     return await find_member(chat_id)
 
+async def set_member_welcomed(chat_id, welcomed: bool = True) -> bool:
+    member = await find_member(chat_id)
+    if not member:
+        return False
+    val = "Yes" if welcomed else "No"
+    ok = await update_cell(MEMBERS_SHEET, member["row"], 6, val)
+    if ok:
+        invalidate(MEMBERS_SHEET)
+    return ok
+
 async def get_members_by_team(team: str):
     rows = await get_sheet(MEMBERS_SHEET)
     if not rows or len(rows) < 2:
         return []
 
-    t = normalize_team(team)
+    t = norm(team)
     out = []
     for row in rows[1:]:
-        row_team = normalize_team(row[3]) if len(row) > 3 else ""
+        row_team = norm(row[3]) if len(row) > 3 else ""
         if row_team == t:
             out.append({
                 "chat_id": clean(row[0]) if len(row) > 0 else "",
