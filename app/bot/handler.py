@@ -1,10 +1,11 @@
 # app/bot/handler.py
 # -*- coding: utf-8 -*-
 
+import re
 from cachetools import TTLCache
 
 from bot.helpers import send_message, send_buttons, send_reply_keyboard
-from bot.keyboards import main_keyboard, team_inline_keyboard
+from bot.keyboards import main_keyboard, team_inline_keyboard, BTN_TODAY, BTN_WEEK, BTN_NOT_DONE
 
 from core.members import find_member, save_or_add_member, set_member_welcomed
 from core.tasks import (
@@ -12,17 +13,87 @@ from core.tasks import (
     get_tasks_week,
     get_tasks_not_done,
     update_task_status,
-    update_task_reminder,   # ✅ اضافه شد
+    update_task_reminder,
     format_task_block,
 )
 from core.messages import get_welcome_message
 
 processed_updates = TTLCache(maxsize=20000, ttl=600)
 
+def fa_normalize_text(s: str) -> str:
+    s = str(s or "").strip()
+
+    # حذف کاراکترهای مخفی RTL/LTR که تلگرام گاهی می‌فرسته
+    s = re.sub(r"[\u200e\u200f\u202a-\u202e]", "", s)
+
+    # یکسان‌سازی ی/ک عربی
+    s = s.replace("ي", "ی").replace("ك", "ک")
+
+    # جمع کردن فاصله‌ها
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 
 def _task_text(t, show_delay=False):
     return format_task_block(t, include_delay=show_delay)
 
+async def _ensure_team_or_ask(chat_id):
+    member = await find_member(chat_id)
+    if member and member.get("team"):
+        return member
+
+    await send_message(chat_id, "اول تیم‌ت رو انتخاب کن 👇")
+    await send_buttons(chat_id, "انتخاب تیم:", team_inline_keyboard())
+    return None
+
+async def send_daily(chat_id):
+    member = await _ensure_team_or_ask(chat_id)
+    if not member:
+        return
+
+    tasks = await get_tasks_today(member["team"])
+    if not tasks:
+        await send_message(chat_id, "✅ امروز تسکی نداری")
+        return
+
+    await send_message(chat_id, f"🌅 <b>کارهای امروز ({len(tasks)}):</b>")
+    for t in tasks:
+        buttons = [
+            [{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}],
+            [{"text": "تحویل ندادم ⏰", "callback_data": f"notyet|{t['task_id']}"}],
+        ]
+        await send_buttons(chat_id, _task_text(t), buttons)
+
+async def send_week(chat_id):
+    member = await _ensure_team_or_ask(chat_id)
+    if not member:
+        return
+
+    tasks = await get_tasks_week(member["team"])
+    if not tasks:
+        await send_message(chat_id, "برای ۷ روز آینده تسکی نداری 👌")
+        return
+
+    await send_message(chat_id, f"📅 <b>کارهای ۷ روز آینده ({len(tasks)}):</b>")
+    for t in tasks:
+        await send_message(chat_id, _task_text(t))
+
+async def send_not_done(chat_id):
+    member = await _ensure_team_or_ask(chat_id)
+    if not member:
+        return
+
+    tasks = await get_tasks_not_done(member["team"])
+    if not tasks:
+        await send_message(chat_id, "✅🔥 تسک انجام نشده‌ای نداری")
+        return
+
+    await send_message(chat_id, f"⚠️ <b>تسک‌های انجام نشده ({len(tasks)}):</b>")
+    for t in tasks:
+        buttons = [
+            [{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}],
+            [{"text": "تحویل ندادم ⏰", "callback_data": f"notyet|{t['task_id']}"}],
+        ]
+        await send_buttons(chat_id, _task_text(t, show_delay=True), buttons)
 
 async def process_update(update: dict):
     upd_id = update.get("update_id")
@@ -31,11 +102,13 @@ async def process_update(update: dict):
             return
         processed_updates[upd_id] = True
 
-    # ----- CALLBACKS -----
+    # ---------- callback ----------
     if "callback_query" in update:
         cb = update["callback_query"]
         data = cb.get("data", "")
         chat_id = cb["message"]["chat"]["id"]
+
+        data = fa_normalize_text(data)
 
         if data.startswith("done|"):
             task_id = data.split("|", 1)[1]
@@ -46,17 +119,11 @@ async def process_update(update: dict):
 
         if data.startswith("notyet|"):
             task_id = data.split("|", 1)[1]
-
-            # ✅ ثبت اینکه کاربر گفت "تحویل ندادم"
-            # می‌تونی بعداً تو گزارش‌ها ازش استفاده کنی
+            # ثبت در reminders
             try:
-                await update_task_reminder(task_id, "notyet_last", datetime_now_tehran_str())
-                # شمارنده هم اضافه می‌کنیم
-                # (اگر نبود، بعداً تو check_reminders از reminders می‌خونیم)
-                # اینجا ساده نگه می‌داریم و فقط last رو می‌زنیم
+                await update_task_reminder(task_id, "notyet_last", "1")
             except Exception:
                 pass
-
             await send_message(chat_id, "باشه ⏰ ثبت شد که هنوز تحویل ندادی.")
             await send_reply_keyboard(chat_id, "منوی اصلی:", main_keyboard())
             return
@@ -67,13 +134,14 @@ async def process_update(update: dict):
             await send_reply_keyboard(chat_id, "منوی اصلی:", main_keyboard())
             return
 
-    # ----- MESSAGES -----
+    # ---------- message ----------
     msg = update.get("message")
     if not msg:
         return
 
     chat_id = msg["chat"]["id"]
-    text = (msg.get("text") or "").strip()
+    raw_text = msg.get("text") or ""
+    text = fa_normalize_text(raw_text)
     text_l = text.lower()
 
     user = msg.get("from", {})
@@ -97,27 +165,21 @@ async def process_update(update: dict):
             await send_reply_keyboard(chat_id, "منوی اصلی:", main_keyboard())
         return
 
-    if text == "لیست کارهای امروز":
+    # ✅ تشخیص دکمه‌ها با کلیدواژه (نه ==)
+    if "امروز" in text:
         await send_daily(chat_id)
         return
 
-    if text == "لیست کارهای هفته":
+    if "هفته" in text:
         await send_week(chat_id)
         return
 
-    if text == "تسک های انجام نشده":
+    if "انجام" in text and "نشده" in text:
         await send_not_done(chat_id)
         return
 
+    # fallback
     if member and member.get("team"):
         await send_reply_keyboard(chat_id, "از دکمه‌ها استفاده کن 🙂", main_keyboard())
     else:
         await send_message(chat_id, "اول /start رو بزن و تیم رو انتخاب کن 🙂")
-
-
-# ✅ تابع کمکی برای زمان تهران (برای ثبت notyet_last)
-def datetime_now_tehran_str():
-    import pytz
-    from datetime import datetime
-    tz = pytz.timezone("Asia/Tehran")
-    return datetime.now(tz).strftime("%Y-%m-%d %H:%M")
