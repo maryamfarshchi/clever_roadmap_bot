@@ -20,14 +20,14 @@ TRIGGER_TOKEN = os.getenv("TRIGGER_TOKEN", "").strip()
 
 
 def verify_trigger_token(x_trigger_token: str | None):
-    # اگر TRIGGER_TOKEN ست نشده بود، چک رو رد می‌کنیم (برای راحتی توسعه)
+    # اگر TRIGGER_TOKEN ست نشده بود، چک رو رد می‌کنیم (برای توسعه)
     if TRIGGER_TOKEN and x_trigger_token != TRIGGER_TOKEN:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 @app.get("/ping")
 async def ping():
-    return "OK"
+    return {"ok": True, "pong": True}
 
 
 @app.get("/")
@@ -50,16 +50,17 @@ async def webhook(request: Request):
 async def sync_tasks_endpoint(request: Request):
     body = await request.json() if request else {}
     body = body or {}
-    from_google = body.get("from_google", False)
+    from_google = bool(body.get("from_google", False))
 
     try:
         if not from_google:
             await sync_tasks()
         else:
+            # اگر خود گوگل اطلاع داده (webhook از GAS) فقط کش‌ها رو خالی کن
             invalidate("Tasks")
             invalidate("members")
 
-        # بعد از هر sync، یکبار reminders چک می‌کنیم
+        # بعد از هر sync یکبار reminders چک می‌کنیم
         await check_reminders()
         return {"ok": True}
     except Exception as e:
