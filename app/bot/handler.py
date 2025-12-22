@@ -12,6 +12,7 @@ from core.tasks import (
     get_tasks_week,
     get_tasks_not_done,
     update_task_status,
+    update_task_reminder,   # ✅ اضافه شد
     format_task_block,
 )
 from core.messages import get_welcome_message
@@ -20,68 +21,7 @@ processed_updates = TTLCache(maxsize=20000, ttl=600)
 
 
 def _task_text(t, show_delay=False):
-    # همون فرمت استاندارد با اموجی + type + comment
     return format_task_block(t, include_delay=show_delay)
-
-
-async def send_daily(chat_id):
-    member = await find_member(chat_id)
-    if not member or not member.get("team"):
-        return
-
-    tasks = await get_tasks_today(member["team"])
-    if not tasks:
-        await send_reply_keyboard(chat_id, "✅ امروز تسکی نداری", main_keyboard())
-        return
-
-    await send_message(chat_id, f"🌅 <b>کارهای امروز ({len(tasks)}):</b>")
-    for t in tasks:
-        buttons = [
-            [{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}],
-            [{"text": "تحویل ندادم ⏰", "callback_data": f"notyet|{t['task_id']}"}],
-        ]
-        await send_buttons(chat_id, _task_text(t), buttons)
-
-    await send_reply_keyboard(chat_id, "منوی اصلی:", main_keyboard())
-
-
-async def send_week(chat_id):
-    member = await find_member(chat_id)
-    if not member or not member.get("team"):
-        return
-
-    tasks = await get_tasks_week(member["team"])
-    if not tasks:
-        await send_reply_keyboard(chat_id, "برای ۷ روز آینده تسکی نداری 👌", main_keyboard())
-        return
-
-    # طبق خواسته تو: برای هفته دکمه نمی‌خوایم، فقط پیام‌ها
-    await send_message(chat_id, f"📅 <b>برنامه ۷ روز آینده ({len(tasks)}):</b>")
-    for t in tasks:
-        await send_message(chat_id, _task_text(t))
-
-    await send_reply_keyboard(chat_id, "منوی اصلی:", main_keyboard())
-
-
-async def send_not_done(chat_id):
-    member = await find_member(chat_id)
-    if not member or not member.get("team"):
-        return
-
-    tasks = await get_tasks_not_done(member["team"])
-    if not tasks:
-        await send_reply_keyboard(chat_id, "✅🔥 تسک انجام نشده‌ای نداری", main_keyboard())
-        return
-
-    await send_message(chat_id, f"⚠️ <b>تسک‌های انجام نشده ({len(tasks)}):</b>")
-    for t in tasks:
-        buttons = [
-            [{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}],
-            [{"text": "تحویل ندادم ⏰", "callback_data": f"notyet|{t['task_id']}"}],
-        ]
-        await send_buttons(chat_id, _task_text(t, show_delay=True), buttons)
-
-    await send_reply_keyboard(chat_id, "منوی اصلی:", main_keyboard())
 
 
 async def process_update(update: dict):
@@ -105,7 +45,19 @@ async def process_update(update: dict):
             return
 
         if data.startswith("notyet|"):
-            await send_message(chat_id, "باشه ⏰ (ریمایندرها همچنان فعال می‌مونن)")
+            task_id = data.split("|", 1)[1]
+
+            # ✅ ثبت اینکه کاربر گفت "تحویل ندادم"
+            # می‌تونی بعداً تو گزارش‌ها ازش استفاده کنی
+            try:
+                await update_task_reminder(task_id, "notyet_last", datetime_now_tehran_str())
+                # شمارنده هم اضافه می‌کنیم
+                # (اگر نبود، بعداً تو check_reminders از reminders می‌خونیم)
+                # اینجا ساده نگه می‌داریم و فقط last رو می‌زنیم
+            except Exception:
+                pass
+
+            await send_message(chat_id, "باشه ⏰ ثبت شد که هنوز تحویل ندادی.")
             await send_reply_keyboard(chat_id, "منوی اصلی:", main_keyboard())
             return
 
@@ -132,13 +84,11 @@ async def process_update(update: dict):
     member = await find_member(chat_id)
 
     if text_l == "/start":
-        # welcome فقط یکبار
         if member and not member.get("welcomed"):
             welcome = await get_welcome_message(member.get("customname") or name)
             await send_message(chat_id, welcome)
             await set_member_welcomed(chat_id)
 
-        # اگر تیم انتخاب نشده
         member = await find_member(chat_id)
         if not member or not member.get("team"):
             await send_message(chat_id, "تیم خودت رو انتخاب کن:")
@@ -159,8 +109,15 @@ async def process_update(update: dict):
         await send_not_done(chat_id)
         return
 
-    # اگر تیم دارد ولی پیام ناشناسه، کیبورد رو حتماً نشون بده
     if member and member.get("team"):
         await send_reply_keyboard(chat_id, "از دکمه‌ها استفاده کن 🙂", main_keyboard())
     else:
         await send_message(chat_id, "اول /start رو بزن و تیم رو انتخاب کن 🙂")
+
+
+# ✅ تابع کمکی برای زمان تهران (برای ثبت notyet_last)
+def datetime_now_tehran_str():
+    import pytz
+    from datetime import datetime
+    tz = pytz.timezone("Asia/Tehran")
+    return datetime.now(tz).strftime("%Y-%m-%d %H:%M")
