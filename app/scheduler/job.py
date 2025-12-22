@@ -24,7 +24,6 @@ IRAN_TZ = pytz.timezone("Asia/Tehran")
 TEAM_NAMES = ["Production", "AI Production", "Digital"]
 reminder_lock = asyncio.Lock()
 
-
 async def run_daily_jobs():
     for team in TEAM_NAMES:
         members = await get_members_by_team(team)
@@ -46,7 +45,6 @@ async def run_daily_jobs():
             except Exception as e:
                 log_error(f"Daily job error {u.get('chat_id')}: {e}")
 
-
 async def run_weekly_jobs():
     for team in TEAM_NAMES:
         members = await get_members_by_team(team)
@@ -57,7 +55,7 @@ async def run_weekly_jobs():
                 name = u.get("customname") or u.get("name") or "رفیق"
 
                 if not tasks:
-                    await send_message(u["chat_id"], f"📅 <b>{name}</b>\nبرای هفته پیش‌رو تسکی نداری 👌")
+                    await send_message(u["chat_id"], f"📅 <b>{name}</b>\nبرای ۷ روز آینده تسکی نداری 👌")
                     continue
 
                 lines = [f"📅 <b>{name}</b>\n🗂️ برنامه ۷ روز آینده ({len(tasks)} تسک):\n"]
@@ -73,7 +71,6 @@ async def run_weekly_jobs():
             except Exception as e:
                 log_error(f"Weekly job error {u.get('chat_id')}: {e}")
 
-
 async def check_reminders():
     async with reminder_lock:
         tasks = await load_tasks()
@@ -86,13 +83,12 @@ async def check_reminders():
 
         for t in tasks:
             reminders = t.get("reminders") or {}
-            if t.get("done") or reminders.get("closed"):
+            if t.get("done"):
                 continue
 
             try:
                 delay = int(t.get("delay_days", 0))
 
-                # ---- نوع ریمایندر ----
                 if delay == -2:
                     reminder_type = "2day"
                     if reminder_type in reminders:
@@ -126,7 +122,6 @@ async def check_reminders():
                 else:
                     continue
 
-                # ---- escalated فقط مدیرها ----
                 if reminder_type == "escalated":
                     if not admins:
                         continue
@@ -151,7 +146,6 @@ async def check_reminders():
                     log_info(f"Sent escalated for {t['task_id']} ok={ok}")
                     continue
 
-                # ---- اعضای تیم ----
                 team_members = await get_members_by_team(t["team"])
                 if not team_members:
                     log_error(f"No members found for team={t.get('team')} task={t.get('task_id')}")
@@ -174,13 +168,7 @@ async def check_reminders():
                     if t.get("comment"):
                         msg += f"\n💬 <b>توضیحات بیشتر:</b> {t['comment']}"
 
-                    # ✅ دکمه برای deadline و تاخیرها
-                    needs_buttons = (
-                        reminder_type == "deadline"
-                        or reminder_type.startswith("over_")
-                        or reminder_type == "2day"  # اگر نمی‌خوای 2day دکمه داشته باشه این خط رو بردار
-                    )
-
+                    needs_buttons = (reminder_type == "deadline" or reminder_type.startswith("over_"))
                     if needs_buttons:
                         buttons = [
                             [{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}],
@@ -192,19 +180,17 @@ async def check_reminders():
 
                     sent = True
 
-                # ---- ثبت در reminders ----
                 if sent:
                     if reminder_type == "deadline":
                         task_time = t.get("time") or ""
                         if task_time and parse_time_hhmm(task_time):
                             ok = await update_task_reminder(t["task_id"], "deadline_time", f"{today_str} {task_time}")
-                            log_info(f"Sent deadline_time for {t['task_id']} ok={ok}")
                         else:
                             ok = await update_task_reminder(t["task_id"], "deadline_morning", today_str)
-                            log_info(f"Sent deadline_morning for {t['task_id']} ok={ok}")
                     else:
                         ok = await update_task_reminder(t["task_id"], reminder_type, today_str)
-                        log_info(f"Sent {reminder_type} for {t['task_id']} ok={ok}")
+
+                    log_info(f"Sent {reminder_type} for {t['task_id']} ok={ok}")
 
             except Exception as e:
                 log_error(f"Reminder error task={t.get('task_id')}: {e}")
