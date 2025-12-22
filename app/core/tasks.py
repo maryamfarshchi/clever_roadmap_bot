@@ -14,12 +14,14 @@ TIME_SHEET = "Time Sheet"
 
 IRAN_TZ = pytz.timezone("Asia/Tehran")
 
-# ---------- Helpers ----------
+
 def clean(s):
     return str(s or "").strip()
 
-def normalize_team(s):
+
+def normalize_team(s: str) -> str:
     return clean(s).lower().replace("ai production", "aiproduction").replace(" ", "")
+
 
 PERSIAN_WEEKDAYS = {
     0: "دوشنبه",
@@ -31,9 +33,10 @@ PERSIAN_WEEKDAYS = {
     6: "یکشنبه",
 }
 
+
 def weekday_fa(d: date) -> str:
-    # python: Monday=0 ... Sunday=6
     return PERSIAN_WEEKDAYS.get(d.weekday(), "")
+
 
 def parse_time_hhmm(s: str):
     s = clean(s)
@@ -42,12 +45,13 @@ def parse_time_hhmm(s: str):
     m = re.match(r"^(\d{1,2})[:٫](\d{1,2})$", s)
     if not m:
         return None
-    h = int(m.group(1)); mi = int(m.group(2))
+    h = int(m.group(1))
+    mi = int(m.group(2))
     if 0 <= h <= 23 and 0 <= mi <= 59:
         return (h, mi)
     return None
 
-# Jalali -> Gregorian (pure python)
+
 def jalali_to_gregorian(jy: int, jm: int, jd: int) -> date:
     jy += 1595
     days = -355668 + (365 * jy) + (jy // 33) * 8 + ((jy % 33) + 3) // 4 + jd
@@ -81,6 +85,7 @@ def jalali_to_gregorian(jy: int, jm: int, jd: int) -> date:
         gm += 1
     return date(gy, gm, gd)
 
+
 def parse_jalali_date(date_fa: str):
     s = clean(date_fa)
     if not s:
@@ -91,25 +96,23 @@ def parse_jalali_date(date_fa: str):
     if len(parts) != 3:
         return None
     try:
-        y = int(parts[0]); m = int(parts[1]); d = int(parts[2])
+        y = int(parts[0])
+        m = int(parts[1])
+        d = int(parts[2])
     except ValueError:
         return None
     if y < 1200 or y > 1600 or m < 1 or m > 12 or d < 1 or d > 31:
         return None
     return jalali_to_gregorian(y, m, d)
 
+
 def _find_col(headers, aliases, fallback_index=None):
-    """
-    headers: لیست هدرهای شیت
-    aliases: نام‌های احتمالی ستون
-    """
     hs = [clean(h).lower() for h in headers]
     for a in aliases:
         a = a.lower()
         for i, h in enumerate(hs):
             if h == a:
                 return i
-    # contains match
     for a in aliases:
         a = a.lower()
         for i, h in enumerate(hs):
@@ -117,16 +120,10 @@ def _find_col(headers, aliases, fallback_index=None):
                 return i
     return fallback_index
 
-async def get_tasks_schema(rows):
-    """
-    از روی هدر شیت Tasks ستون‌ها را پیدا می‌کند.
-    اگر هدر نبود یا چیزی پیدا نشد، روی fallback‌های قبلی می‌افتد.
-    """
-    headers = rows[0] if rows and len(rows) >= 1 else []
-    if not headers or not isinstance(headers, list):
-        headers = []
 
-    # fallback‌ها مطابق کد قبلی
+async def get_tasks_schema(rows):
+    headers = rows[0] if rows and isinstance(rows[0], list) else []
+
     schema = {
         "task_id": 0,
         "team": 1,
@@ -141,18 +138,19 @@ async def get_tasks_schema(rows):
     }
 
     if headers:
-        schema["task_id"]   = _find_col(headers, ["task_id", "id", "کد", "شناسه", "task id"], schema["task_id"])
-        schema["team"]      = _find_col(headers, ["team", "تیم"], schema["team"])
-        schema["date_fa"]   = _find_col(headers, ["date_fa", "jalali", "تاریخ", "date", "deadline"], schema["date_fa"])
-        schema["time"]      = _find_col(headers, ["time", "ساعت"], schema["time"])
-        schema["title"]     = _find_col(headers, ["title", "task", "عنوان", "شرح", "نام تسک"], schema["title"])
-        schema["type"]      = _find_col(headers, ["type", "content type", "سبک محتوا", "نوع محتوا"], schema["type"])
-        schema["comment"]   = _find_col(headers, ["comment", "description", "توضیحات", "توضیحات بیشتر", "کامنت"], schema["comment"])
-        schema["status"]    = _find_col(headers, ["status", "وضعیت"], schema["status"])
-        schema["done"]      = _find_col(headers, ["done", "is_done", "انجام شد", "تحویل شد"], schema["done"])
+        schema["task_id"] = _find_col(headers, ["task_id", "id", "کد", "شناسه", "task id"], schema["task_id"])
+        schema["team"] = _find_col(headers, ["team", "تیم"], schema["team"])
+        schema["date_fa"] = _find_col(headers, ["date_fa", "jalali", "تاریخ", "deadline"], schema["date_fa"])
+        schema["time"] = _find_col(headers, ["time", "ساعت"], schema["time"])
+        schema["title"] = _find_col(headers, ["title", "task", "عنوان", "شرح", "نام تسک"], schema["title"])
+        schema["type"] = _find_col(headers, ["type", "content type", "سبک محتوا", "نوع محتوا"], schema["type"])
+        schema["comment"] = _find_col(headers, ["comment", "description", "توضیحات بیشتر", "کامنت"], schema["comment"])
+        schema["status"] = _find_col(headers, ["status", "وضعیت"], schema["status"])
+        schema["done"] = _find_col(headers, ["done", "is_done", "انجام شد", "تحویل شد"], schema["done"])
         schema["reminders"] = _find_col(headers, ["reminders", "یادآوری", "reminder"], schema["reminders"])
 
     return schema
+
 
 def format_task_block(t: dict, include_delay: bool = False) -> str:
     title = clean(t.get("title")) or "بدون عنوان"
@@ -179,16 +177,14 @@ def format_task_block(t: dict, include_delay: bool = False) -> str:
 
     return "\n".join(lines)
 
+
 def group_tasks_by_date(tasks: list):
-    """
-    خروجی: list of (date_en, [tasks...]) sorted
-    """
     mp = {}
     for t in tasks:
         d = t["date_en"]
         mp.setdefault(d, []).append(t)
-    out = sorted(mp.items(), key=lambda x: x[0])
-    return out
+    return sorted(mp.items(), key=lambda x: x[0])
+
 
 async def load_tasks():
     rows = await get_sheet(TASKS_SHEET)
@@ -210,12 +206,10 @@ async def load_tasks():
         date_fa = clean(row[schema["date_fa"]]) if len(row) > schema["date_fa"] else ""
         date_en = parse_jalali_date(date_fa)
         if not date_en:
-            # اگر تاریخ مشکل داشت، بهتره اصلاً وارد لیست نشه تا اشتباه نفرسته
             continue
 
         title = clean(row[schema["title"]]) if len(row) > schema["title"] else ""
         if not title:
-            # برای جلوگیری از اسپم تسک‌های خالی
             log_error(f"Task title empty for task_id={task_id} row={i}")
             continue
 
@@ -224,11 +218,11 @@ async def load_tasks():
         reminders_str = clean(row[schema["reminders"]]) if len(row) > schema["reminders"] else "{}"
         try:
             reminders = json.loads(reminders_str) if reminders_str else {}
-        except json.JSONDecodeError:
+        except Exception:
             reminders = {}
 
         done_val = clean(row[schema["done"]]) if len(row) > schema["done"] else ""
-        done = (done_val.lower() in ["yes", "true", "1", "done", "تمام", "انجام شد"])
+        done = done_val.lower() in ["yes", "true", "1", "done", "تمام", "انجام شد"]
 
         out.append({
             "row_index": i,
@@ -245,10 +239,11 @@ async def load_tasks():
             "done": done,
             "reminders": reminders,
             "delay_days": delay_days,
-            "_schema": schema,  # برای update دقیق
+            "_schema": schema,
         })
 
     return out
+
 
 async def load_time_sheet():
     rows = await get_sheet(TIME_SHEET)
@@ -259,15 +254,17 @@ async def load_time_sheet():
     for i, row in enumerate(rows[1:], start=2):
         if not isinstance(row, list):
             continue
+
         task_id = clean(row[0]) if len(row) > 0 else ""
-        # این بخش اگر ساختار Time Sheetت فرق دارد باید مطابق شیت خودت تنظیم شود
+        if not task_id:
+            continue
+
         team_guess = ""
-        if len(row) > 8 and row[8]:
-            team_guess = row[8]
-        elif len(row) > 13 and row[13]:
-            team_guess = row[13]
-        elif len(row) > 18 and row[18]:
-            team_guess = row[18]
+        for idx in (8, 13, 18):
+            if len(row) > idx and clean(row[idx]):
+                team_guess = clean(row[idx])
+                break
+
         out.append({
             "row_index": i,
             "task_id": task_id,
@@ -275,23 +272,23 @@ async def load_time_sheet():
         })
     return out
 
+
 async def get_tasks_today(team: str):
     tasks = await load_tasks()
     today = datetime.now(IRAN_TZ).date()
     tn = normalize_team(team)
     return [t for t in tasks if t["date_en"] == today and normalize_team(t["team"]) == tn and not t["done"]]
 
-async def get_tasks_next_7_days(team: str):
+
+async def get_tasks_week(team: str):
     tasks = await load_tasks()
     today = datetime.now(IRAN_TZ).date()
-    end = today + timedelta(days=6)  # دقیقاً ۷ روز شامل امروز
+    end = today + timedelta(days=6)  # 7 روز شامل امروز
     tn = normalize_team(team)
     return [t for t in tasks if today <= t["date_en"] <= end and normalize_team(t["team"]) == tn and not t["done"]]
 
+
 async def get_tasks_previous_week(team: str):
-    """
-    شنبه صبح اجرا می‌شود: هفته‌ی گذشته = ۷ روز قبل تا دیروز (جمعه)
-    """
     tasks = await load_tasks()
     today = datetime.now(IRAN_TZ).date()
     end = today - timedelta(days=1)
@@ -299,11 +296,13 @@ async def get_tasks_previous_week(team: str):
     tn = normalize_team(team)
     return [t for t in tasks if start <= t["date_en"] <= end and normalize_team(t["team"]) == tn]
 
+
 async def get_tasks_not_done(team: str):
     tasks = await load_tasks()
     today = datetime.now(IRAN_TZ).date()
     tn = normalize_team(team)
     return [t for t in tasks if t["date_en"] < today and normalize_team(t["team"]) == tn and not t["done"]]
+
 
 async def update_task_status(task_id: str, new_status: str):
     tasks = await load_tasks()
@@ -311,12 +310,12 @@ async def update_task_status(task_id: str, new_status: str):
         if t["task_id"] == task_id:
             schema = t.get("_schema") or {}
             col_status = int(schema.get("status", 9)) + 1
-            col_done   = int(schema.get("done", 17)) + 1
+            col_done = int(schema.get("done", 17)) + 1
 
             ok1 = await update_cell(TASKS_SHEET, t["row_index"], col_status, new_status)
 
             ok2 = True
-            if "done" in new_status.lower():
+            if new_status.strip().lower() in ["done", "completed", "finish", "finished", "تمام", "دان", "انجام شد"]:
                 ok2 = await update_cell(TASKS_SHEET, t["row_index"], col_done, "YES")
 
             if ok1 and ok2:
@@ -325,19 +324,20 @@ async def update_task_status(task_id: str, new_status: str):
             return False
     return False
 
+
 async def set_task_reminders_json(task_id: str, reminders_dict: dict):
     tasks = await load_tasks()
     for t in tasks:
         if t["task_id"] == task_id:
             schema = t.get("_schema") or {}
             col_rem = int(schema.get("reminders", 18)) + 1
-
             payload = json.dumps(reminders_dict or {}, ensure_ascii=False)
             ok = await update_cell(TASKS_SHEET, t["row_index"], col_rem, payload)
             if ok:
                 invalidate(TASKS_SHEET)
             return ok
     return False
+
 
 async def update_task_reminder(task_id: str, key: str, value):
     tasks = await load_tasks()
