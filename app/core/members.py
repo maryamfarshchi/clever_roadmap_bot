@@ -28,38 +28,25 @@ async def find_member(chat_id):
                 "username": clean(row[2]) if len(row) > 2 else "",
                 "team": clean(row[3]) if len(row) > 3 else "",
                 "customname": clean(row[4]) if len(row) > 4 else "",
-                "welcomed": (clean(row[5]).lower() in ["yes", "true", "1"]) if len(row) > 5 else False
+                "welcomed": (clean(row[5]).lower() == "yes") if len(row) > 5 else False
             }
     return None
 
 async def save_or_add_member(chat_id, name=None, username=None, team=None):
     member = await find_member(chat_id)
-
-    # اگر هست: در صورت نیاز آپدیت کن
     if member:
-        changed = False
+        # update basic fields if provided
+        if name is not None and not member.get("name"):
+            await update_cell(MEMBERS_SHEET, member["row"], 2, name)  # name col=2
+        if username is not None and not member.get("username"):
+            await update_cell(MEMBERS_SHEET, member["row"], 3, username)  # username col=3
 
-        # name اگر خالی بود پرش کن
-        if name and not member.get("name"):
-            ok = await update_cell(MEMBERS_SHEET, member["row"], 2, name)  # col B
-            changed = changed or ok
-
-        # username اگر خالی بود پرش کن
-        if username and not member.get("username"):
-            ok = await update_cell(MEMBERS_SHEET, member["row"], 3, username)  # col C
-            changed = changed or ok
-
-        # team اگر داده شد آپدیت کن
         if team:
-            ok = await update_cell(MEMBERS_SHEET, member["row"], 4, team)  # col D
-            changed = changed or ok
-
-        if changed:
-            invalidate(MEMBERS_SHEET)
-
+            ok = await update_cell(MEMBERS_SHEET, member["row"], 4, team)  # team col=4
+            if ok:
+                invalidate(MEMBERS_SHEET)
         return await find_member(chat_id)
 
-    # اگر نبود: اضافه کن
     new_row = [chat_id, name or "", username or "", team or "", "", "No"]
     ok = await append_row(MEMBERS_SHEET, new_row)
     if ok:
@@ -70,7 +57,7 @@ async def set_member_welcomed(chat_id):
     member = await find_member(chat_id)
     if not member:
         return False
-    ok = await update_cell(MEMBERS_SHEET, member["row"], 6, "YES")  # col F
+    ok = await update_cell(MEMBERS_SHEET, member["row"], 6, "YES")  # welcomed col=6
     if ok:
         invalidate(MEMBERS_SHEET)
     return ok
