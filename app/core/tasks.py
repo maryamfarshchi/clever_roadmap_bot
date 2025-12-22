@@ -52,6 +52,7 @@ def parse_time_hhmm(s: str):
     return None
 
 
+# Jalali -> Gregorian (pure python)
 def jalali_to_gregorian(jy: int, jm: int, jd: int) -> date:
     jy += 1595
     days = -355668 + (365 * jy) + (jy // 33) * 8 + ((jy % 33) + 3) // 4 + jd
@@ -108,11 +109,13 @@ def parse_jalali_date(date_fa: str):
 
 def _find_col(headers, aliases, fallback_index=None):
     hs = [clean(h).lower() for h in headers]
+    # exact
     for a in aliases:
         a = a.lower()
         for i, h in enumerate(hs):
             if h == a:
                 return i
+    # contains
     for a in aliases:
         a = a.lower()
         for i, h in enumerate(hs):
@@ -124,6 +127,7 @@ def _find_col(headers, aliases, fallback_index=None):
 async def get_tasks_schema(rows):
     headers = rows[0] if rows and isinstance(rows[0], list) else []
 
+    # fallback های قدیمی
     schema = {
         "task_id": 0,
         "team": 1,
@@ -140,11 +144,11 @@ async def get_tasks_schema(rows):
     if headers:
         schema["task_id"] = _find_col(headers, ["task_id", "id", "کد", "شناسه", "task id"], schema["task_id"])
         schema["team"] = _find_col(headers, ["team", "تیم"], schema["team"])
-        schema["date_fa"] = _find_col(headers, ["date_fa", "jalali", "تاریخ", "deadline"], schema["date_fa"])
+        schema["date_fa"] = _find_col(headers, ["date_fa", "jalali", "تاریخ", "date", "deadline"], schema["date_fa"])
         schema["time"] = _find_col(headers, ["time", "ساعت"], schema["time"])
         schema["title"] = _find_col(headers, ["title", "task", "عنوان", "شرح", "نام تسک"], schema["title"])
         schema["type"] = _find_col(headers, ["type", "content type", "سبک محتوا", "نوع محتوا"], schema["type"])
-        schema["comment"] = _find_col(headers, ["comment", "description", "توضیحات بیشتر", "کامنت"], schema["comment"])
+        schema["comment"] = _find_col(headers, ["comment", "description", "توضیحات", "توضیحات بیشتر", "کامنت"], schema["comment"])
         schema["status"] = _find_col(headers, ["status", "وضعیت"], schema["status"])
         schema["done"] = _find_col(headers, ["done", "is_done", "انجام شد", "تحویل شد"], schema["done"])
         schema["reminders"] = _find_col(headers, ["reminders", "یادآوری", "reminder"], schema["reminders"])
@@ -159,8 +163,10 @@ def format_task_block(t: dict, include_delay: bool = False) -> str:
     time = clean(t.get("time"))
 
     lines = [f"📌 <b>{title}</b>"]
+
     if day or date_fa:
         lines.append(f"🗓️ {day} | {date_fa}".strip())
+
     if time:
         lines.append(f"⏰ {time}")
 
@@ -245,34 +251,6 @@ async def load_tasks():
     return out
 
 
-async def load_time_sheet():
-    rows = await get_sheet(TIME_SHEET)
-    if not rows or len(rows) < 2:
-        return []
-
-    out = []
-    for i, row in enumerate(rows[1:], start=2):
-        if not isinstance(row, list):
-            continue
-
-        task_id = clean(row[0]) if len(row) > 0 else ""
-        if not task_id:
-            continue
-
-        team_guess = ""
-        for idx in (8, 13, 18):
-            if len(row) > idx and clean(row[idx]):
-                team_guess = clean(row[idx])
-                break
-
-        out.append({
-            "row_index": i,
-            "task_id": task_id,
-            "team": normalize_team(team_guess),
-        })
-    return out
-
-
 async def get_tasks_today(team: str):
     tasks = await load_tasks()
     today = datetime.now(IRAN_TZ).date()
@@ -281,48 +259,29 @@ async def get_tasks_today(team: str):
 
 
 async def get_tasks_week(team: str):
+    """
+    ۷ روز آینده از امروز (شامل امروز)
+    """
     tasks = await load_tasks()
     today = datetime.now(IRAN_TZ).date()
-    end = today + timedelta(days=6)  # 7 روز شامل امروز
+    end = today + timedelta(days=6)
     tn = normalize_team(team)
     return [t for t in tasks if today <= t["date_en"] <= end and normalize_team(t["team"]) == tn and not t["done"]]
 
 
-async def get_tasks_previous_week(team: str):
-    tasks = await load_tasks()
-    today = datetime.now(IRAN_TZ).date()
-    end = today - timedelta(days=1)
-    start = end - timedelta(days=6)
-    tn = normalize_team(team)
-    return [t for t in tasks if start <= t["date_en"] <= end and normalize_team(t["team"]) == tn]
-
-
 async def get_tasks_not_done(team: str):
+    """
+    هرچی قبل از امروز بوده و done نیست (برای دکمه تسک‌های انجام نشده)
+    """
     tasks = await load_tasks()
     today = datetime.now(IRAN_TZ).date()
     tn = normalize_team(team)
     return [t for t in tasks if t["date_en"] < today and normalize_team(t["team"]) == tn and not t["done"]]
 
 
-async def update_task_status(task_id: str, new_status: str):
-    tasks = await load_tasks()
-    for t in tasks:
-        if t["task_id"] == task_id:
-            schema = t.get("_schema") or {}
-            col_status = int(schema.get("status", 9)) + 1
-            col_done = int(schema.get("done", 17)) + 1
-
-            ok1 = await update_cell(TASKS_SHEET, t["row_index"], col_status, new_status)
-
-            ok2 = True
-            if new_status.strip().lower() in ["done", "completed", "finish", "finished", "تمام", "دان", "انجام شد"]:
-                ok2 = await update_cell(TASKS_SHEET, t["row_index"], col_done, "YES")
-
-            if ok1 and ok2:
-                invalidate(TASKS_SHEET)
-                return True
-            return False
-    return False
+def _is_done_status(new_status: str) -> bool:
+    s = clean(new_status).lower()
+    return s in ["done", "completed", "finish", "finished", "تمام", "دان", "انجام شد"]
 
 
 async def set_task_reminders_json(task_id: str, reminders_dict: dict):
@@ -343,7 +302,38 @@ async def update_task_reminder(task_id: str, key: str, value):
     tasks = await load_tasks()
     for t in tasks:
         if t["task_id"] == task_id:
-            reminders = t["reminders"] or {}
+            reminders = t.get("reminders") or {}
             reminders[key] = value
             return await set_task_reminders_json(task_id, reminders)
+    return False
+
+
+async def update_task_status(task_id: str, new_status: str):
+    """
+    Done شدن: علاوه بر status و done=YES
+    یک فلگ reminders.closed هم ست می‌کنیم تا هیچ ریمایندری دوباره نیاد
+    """
+    tasks = await load_tasks()
+    for t in tasks:
+        if t["task_id"] == task_id:
+            schema = t.get("_schema") or {}
+            col_status = int(schema.get("status", 9)) + 1
+            col_done = int(schema.get("done", 17)) + 1
+
+            ok1 = await update_cell(TASKS_SHEET, t["row_index"], col_status, new_status)
+
+            ok2 = True
+            if _is_done_status(new_status):
+                ok2 = await update_cell(TASKS_SHEET, t["row_index"], col_done, "YES")
+
+            # قفل ریمایندرها بعد از Done
+            ok3 = True
+            if _is_done_status(new_status):
+                ok3 = await update_task_reminder(task_id, "closed", True)
+
+            if ok1 and ok2 and ok3:
+                invalidate(TASKS_SHEET)
+                return True
+            return False
+
     return False
