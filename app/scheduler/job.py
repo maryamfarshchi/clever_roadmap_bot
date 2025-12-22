@@ -10,8 +10,7 @@ from core.tasks import (
     load_tasks,
     update_task_reminder,
     get_tasks_today,
-    get_tasks_week,
-    group_tasks_by_date,
+    get_tasks_next_days,
     format_task_block,
     parse_time_hhmm,
 )
@@ -20,9 +19,15 @@ from bot.helpers import send_message, send_buttons
 from core.logging import log_error, log_info
 
 IRAN_TZ = pytz.timezone("Asia/Tehran")
-
 TEAM_NAMES = ["Production", "AI Production", "Digital"]
+
 reminder_lock = asyncio.Lock()
+
+def _buttons(task_id: str):
+    return [
+        [{"text": "تحویل دادم ✅", "callback_data": f"done|{task_id}"}],
+        [{"text": "تحویل ندادم ⏰", "callback_data": f"notyet|{task_id}"}],
+    ]
 
 async def run_daily_jobs():
     for team in TEAM_NAMES:
@@ -36,38 +41,37 @@ async def run_daily_jobs():
                     await send_message(u["chat_id"], f"☀️ صبح بخیر <b>{name}</b>!\n✅ امروز تسکی نداری.")
                     continue
 
+                # لیست امروز (بدون دکمه) یا اگر خواستی دکمه‌دارش کنم بگو
                 blocks = [f"☀️ صبح بخیر <b>{name}</b>!\n📌 کارهای امروزت ({len(tasks)}):\n"]
                 for t in tasks:
                     blocks.append(format_task_block(t))
                     blocks.append("")
-
                 await send_message(u["chat_id"], "\n".join(blocks).strip())
+
             except Exception as e:
                 log_error(f"Daily job error {u.get('chat_id')}: {e}")
 
 async def run_weekly_jobs():
+    # طبق خواسته تو: از امروز تا ۷ روز آینده (نه هفته گذشته)
+    start = datetime.now(IRAN_TZ).date()
+
     for team in TEAM_NAMES:
         members = await get_members_by_team(team)
-        tasks = await get_tasks_week(team)
-
         for u in members:
             try:
                 name = u.get("customname") or u.get("name") or "رفیق"
+                tasks = await get_tasks_next_days(team, start_date=start, days=7)
 
                 if not tasks:
-                    await send_message(u["chat_id"], f"📅 <b>{name}</b>\nبرای ۷ روز آینده تسکی نداری 👌")
+                    await send_message(u["chat_id"], f"📅 <b>{name}</b>\nبرای ۷ روز آینده چیزی تو لیستت نیست 👌")
                     continue
 
-                lines = [f"📅 <b>{name}</b>\n🗂️ برنامه ۷ روز آینده ({len(tasks)} تسک):\n"]
-                for d, items in group_tasks_by_date(tasks):
-                    day = items[0].get("day_fa", "")
-                    date_fa = items[0].get("date_fa", "")
-                    lines.append(f"🗓️ <b>{day} | {date_fa}</b>")
-                    for t in items:
-                        lines.append(f"• {t['title']}" + (f" ⏰ {t['time']}" if t.get("time") else ""))
+                lines = [f"📅 <b>{name}</b>\n🗂️ برنامه‌ی ۷ روز آینده ({len(tasks)} تسک):\n"]
+                for t in tasks:
+                    lines.append(format_task_block(t))
                     lines.append("")
-
                 await send_message(u["chat_id"], "\n".join(lines).strip())
+
             except Exception as e:
                 log_error(f"Weekly job error {u.get('chat_id')}: {e}")
 
@@ -82,18 +86,20 @@ async def check_reminders():
         admins = await get_members_by_team("ALL")
 
         for t in tasks:
-            reminders = t.get("reminders") or {}
             if t.get("done"):
                 continue
 
             try:
                 delay = int(t.get("delay_days", 0))
+                reminders = t.get("reminders") or {}
 
+                # 2 روز قبل
                 if delay == -2:
                     reminder_type = "2day"
                     if reminder_type in reminders:
                         continue
 
+                # روز ددلاین
                 elif delay == 0:
                     task_time = t.get("time") or ""
                     parsed = parse_time_hhmm(task_time) if task_time else None
@@ -105,16 +111,20 @@ async def check_reminders():
                         if current_hm < parsed:
                             continue
                         reminder_type = "deadline"
+                        reminder_key = key
                     else:
                         reminder_type = "deadline"
-                        if "deadline_morning" in reminders:
+                        reminder_key = "deadline_morning"
+                        if reminder_key in reminders:
                             continue
 
+                # تاخیر 1 تا 5
                 elif 1 <= delay <= 5:
                     reminder_type = f"over_{delay}"
                     if reminder_type in reminders:
                         continue
 
+                # بیشتر از 5 => escalated
                 elif delay > 5:
                     reminder_type = "escalated"
                     if reminder_type in reminders:
@@ -122,6 +132,7 @@ async def check_reminders():
                 else:
                     continue
 
+                # escalated فقط مدیرها
                 if reminder_type == "escalated":
                     if not admins:
                         continue
@@ -139,6 +150,9 @@ async def check_reminders():
                     if t.get("comment"):
                         msg += f"\n💬 <b>توضیحات بیشتر:</b> {t['comment']}"
 
+                    # برای مدیرها هم خوبه بدونن کدوم تسکه:
+                    msg += f"\n\n🆔 <code>{t['task_id']}</code>"
+
                     for a in admins:
                         await send_message(a["chat_id"], msg)
 
@@ -146,6 +160,7 @@ async def check_reminders():
                     log_info(f"Sent escalated for {t['task_id']} ok={ok}")
                     continue
 
+                # اعضای تیم مربوطه
                 team_members = await get_members_by_team(t["team"])
                 if not team_members:
                     log_error(f"No members found for team={t.get('team')} task={t.get('task_id')}")
@@ -168,29 +183,21 @@ async def check_reminders():
                     if t.get("comment"):
                         msg += f"\n💬 <b>توضیحات بیشتر:</b> {t['comment']}"
 
-                    needs_buttons = (reminder_type == "deadline" or reminder_type.startswith("over_"))
-                    if needs_buttons:
-                        buttons = [
-                            [{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}],
-                            [{"text": "تحویل ندادم ⏰", "callback_data": f"notyet|{t['task_id']}"}],
-                        ]
-                        await send_buttons(u["chat_id"], msg, buttons)
-                    else:
-                        await send_message(u["chat_id"], msg)
-
+                    # ✅ طبق خواسته تو: همه‌ی ریمایندرها دکمه داشته باشن
+                    await send_buttons(u["chat_id"], msg, _buttons(t["task_id"]))
                     sent = True
 
+                # ثبت برای جلوگیری از تکرار
                 if sent:
-                    if reminder_type == "deadline":
-                        task_time = t.get("time") or ""
-                        if task_time and parse_time_hhmm(task_time):
-                            ok = await update_task_reminder(t["task_id"], "deadline_time", f"{today_str} {task_time}")
-                        else:
-                            ok = await update_task_reminder(t["task_id"], "deadline_morning", today_str)
+                    if delay == 0 and (t.get("time") or ""):
+                        ok = await update_task_reminder(t["task_id"], "deadline_time", f"{today_str} {t.get('time','')}")
+                        log_info(f"Sent deadline_time for {t['task_id']} ok={ok}")
+                    elif delay == 0:
+                        ok = await update_task_reminder(t["task_id"], "deadline_morning", today_str)
+                        log_info(f"Sent deadline_morning for {t['task_id']} ok={ok}")
                     else:
                         ok = await update_task_reminder(t["task_id"], reminder_type, today_str)
-
-                    log_info(f"Sent {reminder_type} for {t['task_id']} ok={ok}")
+                        log_info(f"Sent {reminder_type} for {t['task_id']} ok={ok}")
 
             except Exception as e:
                 log_error(f"Reminder error task={t.get('task_id')}: {e}")
