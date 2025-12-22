@@ -10,7 +10,7 @@ from core.tasks import (
     load_tasks,
     update_task_reminder,
     get_tasks_today,
-    get_tasks_previous_week,
+    get_tasks_week,
     group_tasks_by_date,
     format_task_block,
     parse_time_hhmm,
@@ -27,6 +27,9 @@ reminder_lock = asyncio.Lock()
 
 
 async def run_daily_jobs():
+    """
+    هر روز صبح: یک پیام کامل لیستی، بدون دکمه
+    """
     for team in TEAM_NAMES:
         members = await get_members_by_team(team)
         for u in members:
@@ -49,18 +52,22 @@ async def run_daily_jobs():
 
 
 async def run_weekly_jobs():
+    """
+    شنبه‌ها: برنامه ۷ روز آینده (از همین امروز تا ۶ روز بعد)
+    """
     for team in TEAM_NAMES:
         members = await get_members_by_team(team)
+        tasks = await get_tasks_week(team)
+
         for u in members:
             try:
-                tasks = await get_tasks_previous_week(team)
                 name = u.get("customname") or u.get("name") or "رفیق"
 
                 if not tasks:
-                    await send_message(u["chat_id"], f"📅 <b>{name}</b>\nهفته‌ی گذشته تسکی ثبت نشده بود 👌")
+                    await send_message(u["chat_id"], f"📅 <b>{name}</b>\nبرای هفته پیش‌رو تسکی نداری 👌")
                     continue
 
-                lines = [f"📅 <b>{name}</b>\n🗂️ گزارش هفته‌ی گذشته ({len(tasks)} تسک):\n"]
+                lines = [f"📅 <b>{name}</b>\n🗂️ برنامه ۷ روز آینده ({len(tasks)} تسک):\n"]
                 for d, items in group_tasks_by_date(tasks):
                     day = items[0].get("day_fa", "")
                     date_fa = items[0].get("date_fa", "")
@@ -75,6 +82,9 @@ async def run_weekly_jobs():
 
 
 async def check_reminders():
+    """
+    ریمایندرها دوره‌ای چک می‌شوند تا اگر بعداً ساعت تسک ست شد هم تشخیص بده.
+    """
     async with reminder_lock:
         tasks = await load_tasks()
 
@@ -85,13 +95,15 @@ async def check_reminders():
         admins = await get_members_by_team("ALL")
 
         for t in tasks:
-            if t.get("done"):
+            # ✅ اگر Done یا قفل شده => هیچ ریمایندری
+            reminders = t.get("reminders") or {}
+            if t.get("done") or reminders.get("closed"):
                 continue
 
             try:
                 delay = int(t.get("delay_days", 0))
-                reminders = t.get("reminders") or {}
 
+                # ---- نوع ریمایندر ----
                 # 2 روز قبل
                 if delay == -2:
                     reminder_type = "2day"
@@ -131,7 +143,7 @@ async def check_reminders():
                 else:
                     continue
 
-                # escalated فقط مدیرها
+                # ---- escalated فقط برای مدیرها (team=ALL) ----
                 if reminder_type == "escalated":
                     if not admins:
                         continue
@@ -144,6 +156,7 @@ async def check_reminders():
                         "team": t.get("team", ""),
                     })
 
+                    # اضافه کردن type/comment
                     if t.get("type"):
                         msg += f"\n🧩 <b>سبک محتوا:</b> {t['type']}"
                     if t.get("comment"):
@@ -156,6 +169,7 @@ async def check_reminders():
                     log_info(f"Sent escalated for {t['task_id']} ok={ok}")
                     continue
 
+                # ---- اعضای تیم تسک ----
                 team_members = await get_members_by_team(t["team"])
                 if not team_members:
                     log_error(f"No members found for team={t.get('team')} task={t.get('task_id')}")
@@ -178,6 +192,7 @@ async def check_reminders():
                     if t.get("comment"):
                         msg += f"\n💬 <b>توضیحات بیشتر:</b> {t['comment']}"
 
+                    # فقط deadline دکمه داشته باشد
                     if reminder_type == "deadline":
                         buttons = [
                             [{"text": "تحویل دادم ✅", "callback_data": f"done|{t['task_id']}"}],
@@ -189,6 +204,7 @@ async def check_reminders():
 
                     sent = True
 
+                # ---- ثبت در reminders ----
                 if sent:
                     if delay == 0 and (t.get("time") or ""):
                         ok = await update_task_reminder(t["task_id"], "deadline_time", f"{today_str} {t.get('time','')}")
