@@ -14,26 +14,14 @@ TIME_SHEET = "Time Sheet"
 
 IRAN_TZ = pytz.timezone("Asia/Tehran")
 
-# -------------------------
-# Digit normalization
-# -------------------------
-_DIGITS_FA = "۰۱۲۳۴۵۶۷۸۹"
-_DIGITS_AR = "٠١٢٣٤٥٦٧٨٩"
-_DIGITS_EN = "0123456789"
-_TRANS = str.maketrans(
-    _DIGITS_FA + _DIGITS_AR,
-    _DIGITS_EN + _DIGITS_EN
-)
-
-def to_en_digits(s: str) -> str:
-    return (s or "").translate(_TRANS)
+_FA_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 
 def clean(s):
-    # حذف کاراکترهای مخفی و یکدست‌سازی اعداد
     s = str(s or "").strip()
-    s = re.sub(r"[\u200e\u200f\u202a-\u202e\u200c]", "", s)  # LRM/RLM/embedding + ZWNJ
-    s = to_en_digits(s)
-    return s.strip()
+    # حذف کاراکترهای کنترل جهت
+    s = re.sub(r"[\u200e\u200f\u202a-\u202e]", "", s)
+    # تبدیل ارقام فارسی/عربی به انگلیسی
+    return s.translate(_FA_DIGITS).strip()
 
 def normalize_team(s: str) -> str:
     return clean(s).lower().replace("ai production", "aiproduction").replace(" ", "")
@@ -55,7 +43,6 @@ def parse_time_hhmm(s: str):
     s = clean(s)
     if not s:
         return None
-    # هم ":" هم "٫"
     m = re.match(r"^(\d{1,2})[:٫](\d{1,2})$", s)
     if not m:
         return None
@@ -65,9 +52,7 @@ def parse_time_hhmm(s: str):
         return (h, mi)
     return None
 
-# -------------------------
-# Jalali -> Gregorian (pure python)
-# -------------------------
+# Jalali -> Gregorian
 def jalali_to_gregorian(jy: int, jm: int, jd: int) -> date:
     jy += 1595
     days = -355668 + (365 * jy) + (jy // 33) * 8 + ((jy % 33) + 3) // 4 + jd
@@ -102,10 +87,9 @@ def jalali_to_gregorian(jy: int, jm: int, jd: int) -> date:
     return date(gy, gm, gd)
 
 def parse_jalali_date(date_fa: str):
-    s = clean(date_fa)
+    s = clean(date_fa).replace("-", "/")
     if not s:
         return None
-    s = s.replace("-", "/")
     parts = [p for p in s.split("/") if p.strip()]
     if len(parts) != 3:
         return None
@@ -134,7 +118,6 @@ def _find_col(headers, aliases, fallback_index=None):
 async def get_tasks_schema(rows):
     headers = rows[0] if rows and isinstance(rows[0], list) else []
 
-    # fallback مطابق ساختار شیت تو (با ستون Escalated قبل Done)
     schema = {
         "task_id": 0,
         "team": 1,
@@ -149,16 +132,16 @@ async def get_tasks_schema(rows):
     }
 
     if headers:
-        schema["task_id"]   = _find_col(headers, ["taskid", "task_id", "id", "کد", "شناسه"], schema["task_id"])
+        schema["task_id"]   = _find_col(headers, ["taskid", "task_id", "id", "کد", "شناسه", "task id"], schema["task_id"])
         schema["team"]      = _find_col(headers, ["team", "تیم"], schema["team"])
-        schema["date_fa"]   = _find_col(headers, ["date fa", "date_fa", "تاریخ"], schema["date_fa"])
+        schema["date_fa"]   = _find_col(headers, ["date fa", "date_fa", "jalali", "تاریخ", "deadline"], schema["date_fa"])
         schema["time"]      = _find_col(headers, ["time", "ساعت"], schema["time"])
-        schema["title"]     = _find_col(headers, ["content title", "title", "task", "عنوان", "شرح"], schema["title"])
+        schema["title"]     = _find_col(headers, ["content title", "title", "task", "عنوان", "شرح", "نام تسک"], schema["title"])
         schema["type"]      = _find_col(headers, ["content type", "type", "سبک محتوا", "نوع محتوا"], schema["type"])
-        schema["comment"]   = _find_col(headers, ["comment", "توضیحات", "توضیحات بیشتر", "کامنت"], schema["comment"])
+        schema["comment"]   = _find_col(headers, ["comment", "description", "توضیحات", "توضیحات بیشتر", "کامنت"], schema["comment"])
         schema["status"]    = _find_col(headers, ["status", "وضعیت"], schema["status"])
-        schema["done"]      = _find_col(headers, ["done", "انجام شد", "تحویل شد"], schema["done"])
-        schema["reminders"] = _find_col(headers, ["reminders", "یادآوری"], schema["reminders"])
+        schema["done"]      = _find_col(headers, ["done", "is_done", "انجام شد", "تحویل شد"], schema["done"])
+        schema["reminders"] = _find_col(headers, ["reminders", "یادآوری", "reminder"], schema["reminders"])
 
     return schema
 
@@ -187,6 +170,13 @@ def format_task_block(t: dict, include_delay: bool = False) -> str:
 
     return "\n".join(lines)
 
+def group_tasks_by_date(tasks: list):
+    mp = {}
+    for t in tasks:
+        d = t["date_en"]
+        mp.setdefault(d, []).append(t)
+    return sorted(mp.items(), key=lambda x: x[0])
+
 async def load_tasks():
     rows = await get_sheet(TASKS_SHEET)
     if not rows or len(rows) < 2:
@@ -207,7 +197,6 @@ async def load_tasks():
         date_fa = clean(row[schema["date_fa"]]) if len(row) > schema["date_fa"] else ""
         date_en = parse_jalali_date(date_fa)
         if not date_en:
-            # اینجا قبلاً همه چی حذف می‌شد و تو فکر می‌کردی تسک نداری
             continue
 
         title = clean(row[schema["title"]]) if len(row) > schema["title"] else ""
@@ -226,7 +215,7 @@ async def load_tasks():
             reminders = {}
 
         done_val = clean(row[schema["done"]]) if len(row) > schema["done"] else ""
-        done = done_val.lower() in ["yes", "true", "1", "done", "completed", "تمام", "انجام شد"]
+        done = done_val.lower() in ["yes", "true", "1", "done", "تمام", "انجام شد"]
 
         out.append({
             "row_index": i,
@@ -252,23 +241,20 @@ async def get_tasks_today(team: str):
     tasks = await load_tasks()
     today = datetime.now(IRAN_TZ).date()
     tn = normalize_team(team)
-    return [t for t in tasks if t["date_en"] == today and normalize_team(t["team"]) == tn and not t["done"]]
+    return [t for t in tasks if t["date_en"] == today and t["team"] == tn and not t["done"]]
 
-async def get_tasks_next_days(team: str, start_date: date, days: int = 7):
+async def get_tasks_next_7_days(team: str, start_date: date | None = None):
     tasks = await load_tasks()
+    start = start_date or datetime.now(IRAN_TZ).date()
+    end = start + timedelta(days=6)  # 7 روز شامل امروز
     tn = normalize_team(team)
-    end = start_date + timedelta(days=days - 1)
-    return [t for t in tasks if start_date <= t["date_en"] <= end and normalize_team(t["team"]) == tn and not t["done"]]
+    return [t for t in tasks if start <= t["date_en"] <= end and t["team"] == tn and not t["done"]]
 
-async def get_tasks_week(team: str):
-    today = datetime.now(IRAN_TZ).date()
-    return await get_tasks_next_days(team, today, 7)
-
-async def get_tasks_not_done(team: str):
+async def get_tasks_not_done(team: str, ref_date: date | None = None):
     tasks = await load_tasks()
-    today = datetime.now(IRAN_TZ).date()
+    today = ref_date or datetime.now(IRAN_TZ).date()
     tn = normalize_team(team)
-    return [t for t in tasks if t["date_en"] < today and normalize_team(t["team"]) == tn and not t["done"]]
+    return [t for t in tasks if t["date_en"] < today and t["team"] == tn and not t["done"]]
 
 async def update_task_status(task_id: str, new_status: str):
     tasks = await load_tasks()
