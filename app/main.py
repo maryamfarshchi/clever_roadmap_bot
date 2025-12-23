@@ -18,12 +18,10 @@ app = FastAPI()
 
 TRIGGER_TOKEN = os.getenv("TRIGGER_TOKEN", "").strip()
 
-def verify_trigger_token(x_trigger_token: str | None, token: str | None = None):
-    # اگر TRIGGER_TOKEN ست نشده بود، چک رو رد می‌کنیم
-    if TRIGGER_TOKEN:
-        provided = (x_trigger_token or token or "").strip()
-        if provided != TRIGGER_TOKEN:
-            raise HTTPException(status_code=401, detail="Unauthorized")
+def verify_trigger_token(x_trigger_token: str | None):
+    # اگر TRIGGER_TOKEN ست نشده بود، چک رو رد می‌کنیم (برای توسعه)
+    if TRIGGER_TOKEN and (x_trigger_token or "").strip() != TRIGGER_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
 @app.get("/ping")
 async def ping():
@@ -47,26 +45,27 @@ async def webhook(request: Request):
 async def sync_tasks_endpoint(request: Request):
     body = await request.json() if request else {}
     body = body or {}
-    from_google = body.get("from_google", False)
+    from_google = bool(body.get("from_google", False))
 
     try:
         if not from_google:
             await sync_tasks()
         else:
+            # وقتی خود Google خبر میده که sync شده
             invalidate("Tasks")
             invalidate("members")
 
-        # بعد از هر sync، reminders چک می‌کنیم
+        # بعد از هر sync یکبار reminders چک می‌کنیم
         await check_reminders()
         return {"ok": True}
     except Exception as e:
         log_error(f"SYNC ERROR: {e}")
         return {"ok": False, "error": str(e)}
 
-# cron friendly: GET or POST
+# ---- کرون‌ها: GET/POST هر دو، چون بعضی سرویس‌ها test run رو GET میزنن ----
 @app.api_route("/run/daily", methods=["GET", "POST"])
-async def run_daily(x_trigger_token: str | None = Header(None), token: str | None = None):
-    verify_trigger_token(x_trigger_token, token)
+async def run_daily(x_trigger_token: str | None = Header(None)):
+    verify_trigger_token(x_trigger_token)
     try:
         await run_daily_jobs()
         return {"ok": True, "job": "daily"}
@@ -75,8 +74,8 @@ async def run_daily(x_trigger_token: str | None = Header(None), token: str | Non
         return {"ok": False, "error": str(e)}
 
 @app.api_route("/run/weekly", methods=["GET", "POST"])
-async def run_weekly(x_trigger_token: str | None = Header(None), token: str | None = None):
-    verify_trigger_token(x_trigger_token, token)
+async def run_weekly(x_trigger_token: str | None = Header(None)):
+    verify_trigger_token(x_trigger_token)
     try:
         await run_weekly_jobs()
         return {"ok": True, "job": "weekly"}
@@ -85,8 +84,8 @@ async def run_weekly(x_trigger_token: str | None = Header(None), token: str | No
         return {"ok": False, "error": str(e)}
 
 @app.api_route("/run/reminders", methods=["GET", "POST"])
-async def run_reminders(x_trigger_token: str | None = Header(None), token: str | None = None):
-    verify_trigger_token(x_trigger_token, token)
+async def run_reminders(x_trigger_token: str | None = Header(None)):
+    verify_trigger_token(x_trigger_token)
     try:
         await check_reminders()
         return {"ok": True, "job": "reminders"}
